@@ -3,7 +3,7 @@
 struct node {
 	struct node *next;
 	int data;
-}
+};
 
 struct stack {
 	struct node *head;
@@ -53,4 +53,40 @@ void push(struct stack *st, int data) {
 
 	tail->data = data;
 	tail->next = NULL;
+}
+
+void pop(struct stack st*) {
+	struct stack *temp_head = st->head;
+	int temp_data = temp_head->data;
+	
+	st->head = temp->next;
+	free(temp);
+	printf("%d\n", temp_data);
+}
+
+int empty(struct stack st*) {
+	return (st->size == 0 ? 1 : 0);
+}
+
+void display(struct stack st*) {
+	if (st->head != NULL) {
+		struct node* temp = st->head;
+		printf("%d", temp->data);
+		
+		while (temp->next != NULL) {
+			temp = temp->next;
+			printf(" -> %d", temp->data);
+		}
+	}
+}
+
+struct stack* create() {
+	struct stack *st = (struct stack*)malloc(sizeof(struct stack));
+	st->head = NULL;
+	st->size = 0;
+	return st;
+}
+
+void stack_size(struct stack st*) {
+	printf("%d\n", st->size);
 }
