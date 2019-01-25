@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 
 struct node {
 	struct node *next;
@@ -19,49 +20,89 @@ struct stack* create();
 void stack_size(struct stack *st);
 
 int main() {
+	char buf[20];
 	int fds[2];
 	pipe(fds);
+	
 	int pid = fork();
 	if (pid > 0) {
 		// Client
 		close(fds[0]);
 
+		while (1) {
+			fgets(buf, 100, stdin);
+			write(fds[1], buf, 20);
+		}
 	} else {
 		// Server
 		close(fds[1]);
-
+		
+		while (1) {
+			read(fds[0], buf, 20);
+			struct stack *st = NULL;
+			
+			if (strcmp(buf, "peek") == 0) {
+				int p = peek(st);
+				printf("Picked %d from stack.\n", p);
+			} else if (strcmp(buf, "pop") == 0) {
+				pop(st);
+				printf("Popped stack head element.\n");
+			} else if (strcmp(buf, "empty") == 0) {
+				if (empty(st)) {
+					printf("Stack is empty.\n");
+				} else {
+					printf("Stack is not empty.\n");
+				}
+			} else if (strcmp(buf, "display") == 0) {
+				printf("Stack elements: ");
+				display(st);
+				printf("\n");
+			} else if (strcmp(buf, "create") == 0) {
+				if (st != NULL) {
+					while (!empty(st)) {
+						pop(st);
+					}
+					free(st);
+				}
+				st = create();
+				printf("Created new stack.");
+			} else if (strcmp(buf, "stack_size") == 0) {
+				int n = stack_size(st);
+				printf("Current stack size is %d.\n", n);
+			} else {
+				int data = 0, i = 5;
+				while (buf[i] != '\0') {
+					data *= 10;
+					data += (int)(buf[i] - 48);
+					i++;
+				}
+			}
+		}
 	}
+	
 	return 0;
 }
 
 int peek(struct stack *st) {
-	return st.head->data;
+	return st->head->data;
 }
 
 void push(struct stack *st, int data) {
-	struct node *tail = st->head;
-
-	if (tail == NULL) {
-		tail = (struct node*)malloc(sizeof(struct node));
-	} else {
-		while (tail->next != NULL) {
-			tail = tail->next;
-		}
-		tail->next = (struct node*)malloc(sizeof(struct node));
-		tail = tail->next;
-	}
-
-	tail->data = data;
-	tail->next = NULL;
+	struct node *new_head = (struct node*)malloc(sizeof(struct node));
+	
+	new_head->data = data;
+	new_head->next = st->head;
+	
+	st->head = new_head;
+	st->size++;
 }
 
 void pop(struct stack st*) {
-	struct stack *temp_head = st->head;
-	int temp_data = temp_head->data;
+	if (empty(st)) { return; }
 	
+	struct stack *temp_head = st->head;
 	st->head = temp->next;
 	free(temp);
-	printf("%d\n", temp_data);
 }
 
 int empty(struct stack st*) {
