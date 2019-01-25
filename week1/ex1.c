@@ -1,5 +1,8 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
 
 struct node {
 	struct node *next;
@@ -17,9 +20,12 @@ void pop(struct stack *st);
 int empty(struct stack *st);
 void display(struct stack *st);
 struct stack* create();
-void stack_size(struct stack *st);
+int stack_size(struct stack *st);
+void intro();
 
 int main() {
+	intro();
+	
 	char buf[20];
 	int fds[2];
 	pipe(fds);
@@ -30,34 +36,34 @@ int main() {
 		close(fds[0]);
 
 		while (1) {
-			fgets(buf, 100, stdin);
+			fgets(buf, 16, stdin);
 			write(fds[1], buf, 20);
 		}
 	} else {
 		// Server
 		close(fds[1]);
+		struct stack *st = NULL;
 		
 		while (1) {
 			read(fds[0], buf, 20);
-			struct stack *st = NULL;
-			
-			if (strcmp(buf, "peek") == 0) {
+
+			if (strncmp(buf, "peek", 4) == 0) {
 				int p = peek(st);
-				printf("Picked %d from stack.\n", p);
-			} else if (strcmp(buf, "pop") == 0) {
+				printf("Stack top element is %d.\n\n", p);
+			} else if (strncmp(buf, "pop", 3) == 0) {
 				pop(st);
-				printf("Popped stack head element.\n");
-			} else if (strcmp(buf, "empty") == 0) {
+				printf("Popped stack head element.\n\n");
+			} else if (strncmp(buf, "empty", 5) == 0) {
 				if (empty(st)) {
-					printf("Stack is empty.\n");
+					printf("Stack is empty.\n\n");
 				} else {
-					printf("Stack is not empty.\n");
+					printf("Stack is not empty.\n\n");
 				}
-			} else if (strcmp(buf, "display") == 0) {
+			} else if (strncmp(buf, "display", 7) == 0) {
 				printf("Stack elements: ");
 				display(st);
-				printf("\n");
-			} else if (strcmp(buf, "create") == 0) {
+				printf("\n\n");
+			} else if (strncmp(buf, "create", 6) == 0) {
 				if (st != NULL) {
 					while (!empty(st)) {
 						pop(st);
@@ -65,18 +71,22 @@ int main() {
 					free(st);
 				}
 				st = create();
-				printf("Created new stack.");
-			} else if (strcmp(buf, "stack_size") == 0) {
+				printf("Created new stack.\n\n");
+			} else if (strncmp(buf, "stack_size", 10) == 0) {
 				int n = stack_size(st);
-				printf("Current stack size is %d.\n", n);
-			} else {
+				printf("Current stack size is %d.\n\n", n);
+			} else if (strncmp(buf, "push", 4) == 0) {
 				int data = 0, i = 5;
-				while (buf[i] != '\0') {
+				while (buf[i] != '\n') {
 					data *= 10;
 					data += (int)(buf[i] - 48);
 					i++;
 				}
-			}
+				push(st, data);
+				printf("Pushed %d to the stack.\n\n", data);
+			} else {
+				printf("Invalid input.\n\n");
+			}		
 		}
 	}
 	
@@ -97,19 +107,20 @@ void push(struct stack *st, int data) {
 	st->size++;
 }
 
-void pop(struct stack st*) {
+void pop(struct stack *st) {
 	if (empty(st)) { return; }
 	
-	struct stack *temp_head = st->head;
-	st->head = temp->next;
-	free(temp);
+	struct node *temp_head = st->head;
+	st->head = temp_head->next;
+	free(temp_head);
+	st->size--;
 }
 
-int empty(struct stack st*) {
+int empty(struct stack *st) {
 	return (st->size == 0 ? 1 : 0);
 }
 
-void display(struct stack st*) {
+void display(struct stack *st) {
 	if (st->head != NULL) {
 		struct node* temp = st->head;
 		printf("%d", temp->data);
@@ -128,6 +139,20 @@ struct stack* create() {
 	return st;
 }
 
-void stack_size(struct stack st*) {
-	printf("%d\n", st->size);
+int stack_size(struct stack *st) {
+	return st->size;
+}
+
+void intro() {
+	system("clear");
+
+	printf("Faraday Stack v1.0\n");
+	printf("List of availible commands:\n");
+	printf("create      -- establish new empty stack\n");
+	printf("push [data] -- adds [data] to the top of stack\n");
+	printf("pop         -- removes stack head element\n");
+	printf("peek        -- shows stack head element\n");
+	printf("display     -- shows the whole stack\n");
+	printf("empty       -- checks if the stack is empty\n");
+	printf("stack_size  -- shows current stack size\n\n");
 }
