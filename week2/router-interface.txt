@@ -1,0 +1,15 @@
+# interface between vm and vm1
+auto eth1
+iface eth1 inet static
+	address 192.168.4.1
+	netmask 255.255.255.0
+	network 192.168.4.0
+	broadcast 192.168.4.255
+
+# interface between vm1 and vm2
+auto eth2
+iface eth2 inet static
+	address 192.168.1.1
+	netmask 255.255.255.0
+	network 192.168.1.0
+	broadcast 192.168.1.255

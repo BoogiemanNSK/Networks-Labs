@@ -1,0 +1,9 @@
+# interface between vm1 and vm2
+auto eth1
+iface eth1 inet static
+	address 192.168.1.2
+	netmask 255.255.255.0
+	network 192.168.1.0
+	broadcast 192.168.1.255
+	post-up route add -net 192.168.0.0 netmask 255.255.0.0 gw 192.168.1.1 dev eth1
+	pre-down route del -net 192.168.0.0 netmask 255.255.0.0 gw 192.168.1.1 dev eth1
