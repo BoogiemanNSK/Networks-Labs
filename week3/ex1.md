@@ -1,4 +1,3 @@
-# N Lab 3
 ## Client-Server Model Commands
 
 
@@ -16,14 +15,14 @@ On success, a file descriptor for the new socket is returned. On error, -1 is re
 
 #### Errors Handling
 On error *errno* is set appropriately:
-**EACCES** Permission to create a socket of the specified type and/or protocol is denied.
-**EAFNOSUPPORT** The implementation does not support the specified address family.
-**EINVAL** Unknown protocol, or protocol family not available.
-**EINVAL** Invalid flags in type.
-**EMFILE** The per-process limit on the number of open file descriptors has been reached.
-**ENFILE** The system-wide limit on the total number of open files has been reached.
-**ENOBUFS** or **ENOMEM**  Insufficient memory is available.  The socket cannot be created until sufficient resources are freed.
-**EPROTONOSUPPORT**  The protocol type or the specified protocol is not supported  within this domain.
+* **EACCES** Permission to create a socket of the specified type and/or protocol is denied.
+* **EAFNOSUPPORT** The implementation does not support the specified address family.
+* **EINVAL** Unknown protocol, or protocol family not available.
+* **EINVAL** Invalid flags in type.
+* **EMFILE** The per-process limit on the number of open file descriptors has been reached.
+* **ENFILE** The system-wide limit on the total number of open files has been reached.
+* **ENOBUFS** or **ENOMEM**  Insufficient memory is available.  The socket cannot be created until sufficient resources are freed.
+* **EPROTONOSUPPORT**  The protocol type or the specified protocol is not supported  within this domain.
 
 
 
