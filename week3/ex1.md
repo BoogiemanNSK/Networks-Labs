@@ -39,21 +39,21 @@ On success, these system calls return a nonnegative integer that is a file descr
 
 #### Errors Handling
 On error *errno* is set appropriately:
-**EAGAIN** or **EWOULDBLOCK** The socket is marked nonblocking and no connections arepresent to be accepted. *POSIX.1-2001* and *POSIX.1-2008* allow either error to be returned for this case, and do not require these constants to have the same value, so a portable application should check for both possibilities.
-**EBADF** *sockfd* is not an open file descriptor.
-**ECONNABORTED**  A connection has been aborted.
-**EFAULT** The *addr* argument is not in a writable part of the user address space.
-**EINTR**  The system call was interrupted by a signal that was caught before a valid connection arrived.
-**EINVAL** Socket is not listening for connections, or addrlen is invalid (e.g., is negative).
-**EMFILE** The per-process limit on the number of open file descriptors has been reached.
-**ENFILE** The system-wide limit on the total number of open files has been reached.
-**ENOBUFS**, **ENOMEM** Not enough free memory.  This often means that the memory allocation is limited by the socket buffer limits, not by the system memory.
-**ENOTSOCK** The file descriptor *sockfd* does not refer to a socket.
-**EOPNOTSUPP** The referenced socket is not of type *SOCK_STREAM*.
-**EPROTO** Protocol error.
+* **EAGAIN** or **EWOULDBLOCK** The socket is marked nonblocking and no connections arepresent to be accepted. *POSIX.1-2001* and *POSIX.1-2008* allow either error to be returned for this case, and do not require these constants to have the same value, so a portable application should check for both possibilities.
+* **EBADF** *sockfd* is not an open file descriptor.
+* **ECONNABORTED**  A connection has been aborted.
+* **EFAULT** The *addr* argument is not in a writable part of the user address space.
+* **EINTR**  The system call was interrupted by a signal that was caught before a valid connection arrived.
+* **EINVAL** Socket is not listening for connections, or addrlen is invalid (e.g., is negative).
+* **EMFILE** The per-process limit on the number of open file descriptors has been reached.
+* **ENFILE** The system-wide limit on the total number of open files has been reached.
+* **ENOBUFS**, **ENOMEM** Not enough free memory.  This often means that the memory allocation is limited by the socket buffer limits, not by the system memory.
+* **ENOTSOCK** The file descriptor *sockfd* does not refer to a socket.
+* **EOPNOTSUPP** The referenced socket is not of type *SOCK_STREAM*.
+* **EPROTO** Protocol error.
 
 In addition, Linux *accept()* may fail if:
-**EPERM**  Firewall rules forbid connection.
+* **EPERM**  Firewall rules forbid connection.
 
 In addition, network errors for the new socket and as defined for the protocol may be returned.  Various Linux kernels can return other errors such as **ENOSR**, **ESOCKTNOSUPPORT**, **EPROTONOSUPPORT**, **ETIMEDOUT**. The value **ERESTARTSYS** may be seen during a trace.
 
@@ -72,11 +72,11 @@ On success, *select()* return the number of file descriptors contained in the th
 
 #### Errors Handling
 On error *errno* is set to indicate the error:
-**EBADF**  An invalid file descriptor was given in one of the sets.
-**EINTR**  A signal was caught.
-**EINVAL** *nfds* is negative or exceeds the *RLIMIT_NOFILE* resource limit.
-**EINVAL** The value contained within *timeout* is invalid.
-**ENOMEM** Unable to allocate memory for internal tables.
+* **EBADF**  An invalid file descriptor was given in one of the sets.
+* **EINTR**  A signal was caught.
+* **EINVAL** *nfds* is negative or exceeds the *RLIMIT_NOFILE* resource limit.
+* **EINVAL** The value contained within *timeout* is invalid.
+* **ENOMEM** Unable to allocate memory for internal tables.
 
 
 
@@ -93,21 +93,21 @@ On success, zero is returned.  On error, -1 is returned.
 
 #### Errors Handling
 On error *errno* is set appropriately:
-**EACCES** The address is protected, and the user is not the superuser.
-**EADDRINUSE** The given address is already in use.
-**EADDRINUSE** The port number was specified as zero in the socket address structure, but, upon attempting to bind to an ephemeral port, it was determined that all port numbers in the ephemeral port range are currently in use.
-**EBADF** *sockfd* is not a valid file descriptor.
-**EINVAL** The socket is already bound to an address.
-**EINVAL** *addrlen* is wrong, or *addr* is not a valid address for this socket's domain.
-**ENOTSOCK** The file descriptor *sockfd* does not refer to a socket.
+* **EACCES** The address is protected, and the user is not the superuser.
+* **EADDRINUSE** The given address is already in use.
+* **EADDRINUSE** The port number was specified as zero in the socket address structure, but, upon attempting to bind to an ephemeral port, it was determined that all port numbers in the ephemeral port range are currently in use.
+* **EBADF** *sockfd* is not a valid file descriptor.
+* **EINVAL** The socket is already bound to an address.
+* **EINVAL** *addrlen* is wrong, or *addr* is not a valid address for this socket's domain.
+* **ENOTSOCK** The file descriptor *sockfd* does not refer to a socket.
 
 The following errors are specific to UNIX domain sockets:
-**EACCES** Search permission is denied on a component of the path prefix.
-**EADDRNOTAVAIL** A nonexistent interface was requested or the requested address was not local.
-**EFAULT** *addr* points outside the user's accessible address space.
-**ELOOP**  Too many symbolic links were encountered in resolving *addr*.
-**ENAMETOOLONG** *addr* is too long.
-**ENOENT** A component in the directory prefix of the socket pathname does not exist.
-**ENOMEM** Insufficient kernel memory was available.
-**ENOTDIR** A component of the path prefix is not a directory.
-**EROFS**  The socket inode would reside on a read-only filesystem.
+* **EACCES** Search permission is denied on a component of the path prefix.
+* **EADDRNOTAVAIL** A nonexistent interface was requested or the requested address was not local.
+* **EFAULT** *addr* points outside the user's accessible address space.
+* **ELOOP**  Too many symbolic links were encountered in resolving *addr*.
+* **ENAMETOOLONG** *addr* is too long.
+* **ENOENT** A component in the directory prefix of the socket pathname does not exist.
+* **ENOMEM** Insufficient kernel memory was available.
+* **ENOTDIR** A component of the path prefix is not a directory.
+* **EROFS**  The socket inode would reside on a read-only filesystem.
