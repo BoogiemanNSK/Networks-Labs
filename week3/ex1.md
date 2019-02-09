@@ -4,7 +4,7 @@
 
 ### socket()
 
-**int socket(int domain, int type, int protocol);**
+**int socket(int domain, int type, int protocol)**
 
 #### Description
 *socket()* creates an endpoint for communication and returns a file descriptor that refers to that endpoint.  The file descriptor returned by a successful call will be the lowest-numbered file descriptor not currently open for the process.
