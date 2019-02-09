@@ -4,7 +4,7 @@
 
 ### socket()
 
-**int socket(int domain, int type, int protocol)**
+**int socket(int domain, int type, int protocol);**
 
 #### Description
 *socket()* creates an endpoint for communication and returns a file descriptor that refers to that endpoint. The file descriptor returned by a successful call will be the lowest-numbered file descriptor not currently open for the process.
@@ -28,7 +28,7 @@ On error *errno* is set appropriately:
 
 ### accept()
 
-**int accept(int sockfd, struct sockaddr \*addr, socklen_t \*addrlen)**
+**int accept(int sockfd, struct sockaddr \*addr, socklen_t \*addrlen);**
 
 #### Description
 The *accept()* system call is used with connection-based socket types. It extracts the first connection request on the queue of pending connections for the listening socket, *sockfd*, creates a new connected socket, and returns a new file descriptor referring to that socket.  The newly created socket is not in the listening state. The original socket *sockfd* is unaffected by this call.
@@ -61,7 +61,7 @@ In addition, network errors for the new socket and as defined for the protocol m
 
 ### select()
 
-**int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout)**
+**int select(int nfds, fd_set \*readfds, fd_set \*writefds, fd_set \*exceptfds, struct timeval \*timeout);**
 
 #### Description
 *select()* allow a program to monitor multiple file descriptors, waiting until one or more of the file descriptors become "ready" for some class of I/O operation.  A file descriptor is considered ready if it is possible to perform a corresponding I/O operation.
@@ -82,7 +82,7 @@ On error *errno* is set to indicate the error:
 
 ### bind()
 
-**int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)**
+**int bind(int sockfd, const struct sockaddr \*addr, socklen_t addrlen);**
 
 #### Description
 When a socket is created with *socket()*, it exists in a name space but has no address assigned to it. *bind()* assigns the address specified by *addr* to the socket referred to by the file descriptor *sockfd*. *addrlen* specifies the size, in bytes, of the address structure pointed to by *addr*. Traditionally, this operation is called “assigning a name to a socket”.
