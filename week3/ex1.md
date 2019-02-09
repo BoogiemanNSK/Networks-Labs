@@ -24,7 +24,7 @@ On error *errno* is set appropriately:
 * **ENOBUFS** or **ENOMEM**  Insufficient memory is available.  The socket cannot be created until sufficient resources are freed.
 * **EPROTONOSUPPORT**  The protocol type or the specified protocol is not supported  within this domain.
 
-
+---
 
 ### accept()
 
@@ -57,7 +57,7 @@ In addition, Linux *accept()* may fail if:
 
 In addition, network errors for the new socket and as defined for the protocol may be returned.  Various Linux kernels can return other errors such as **ENOSR**, **ESOCKTNOSUPPORT**, **EPROTONOSUPPORT**, **ETIMEDOUT**. The value **ERESTARTSYS** may be seen during a trace.
 
-
+---
 
 ### select()
 
@@ -78,7 +78,7 @@ On error *errno* is set to indicate the error:
 * **EINVAL** The value contained within *timeout* is invalid.
 * **ENOMEM** Unable to allocate memory for internal tables.
 
-
+---
 
 ### bind()
 
