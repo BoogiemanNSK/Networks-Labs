@@ -7,7 +7,7 @@
 **int socket(int domain, int type, int protocol)**
 
 #### Description
-*socket()* creates an endpoint for communication and returns a file descriptor that refers to that endpoint.  The file descriptor returned by a successful call will be the lowest-numbered file descriptor not currently open for the process.
+*socket()* creates an endpoint for communication and returns a file descriptor that refers to that endpoint. The file descriptor returned by a successful call will be the lowest-numbered file descriptor not currently open for the process.
 **Non-blocking call.**
 
 #### Return Value
@@ -28,7 +28,7 @@ On error *errno* is set appropriately:
 
 ### accept()
 
-**int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)**
+**int accept(int sockfd, struct sockaddr \*addr, socklen_t \*addrlen)**
 
 #### Description
 The *accept()* system call is used with connection-based socket types. It extracts the first connection request on the queue of pending connections for the listening socket, *sockfd*, creates a new connected socket, and returns a new file descriptor referring to that socket.  The newly created socket is not in the listening state. The original socket *sockfd* is unaffected by this call.
