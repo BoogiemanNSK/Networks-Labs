@@ -44,7 +44,7 @@ void * udp_receive_ping(void *arg) {
 
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(PING_PORT);
-    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     bind(ping_recv_socket, (struct sockaddr *) &server_addr, addr_len);
 
@@ -52,12 +52,8 @@ void * udp_receive_ping(void *arg) {
         memset(ping_buffer, 0, PING_SIZE + 1);
         memset(&client_addr, 0, addr_len);
 
-        printf("Nothing happened...\n");
-
         recvfrom(ping_recv_socket, ping_buffer, PING_SIZE + 1, 0,
             (struct sockaddr *) &client_addr, &addr_len);
-
-        printf("Something happened...\n");
 
         if (strncmp(PING, ping_buffer, PING_SIZE) == 0) {
             sendto(ping_recv_socket, PONG, PING_SIZE + 1, 0,
@@ -163,13 +159,13 @@ void tcp_request_network_connection() {
     message[i++] = '.';
     message[i] = '\n';
 
-    addr_len = sizeof(struct sockaddr);
-
     dest.sin_family = AF_INET;
     dest.sin_port = htons(NETWORK_PORT);
     inet_pton(AF_INET, NETWORK_IP_ADDRESS, &dest.sin_addr);
 
     sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    addr_len = sizeof(struct sockaddr);
 
     connect(sock_fd, (struct sockaddr *)&dest, addr_len);
 
@@ -251,17 +247,15 @@ void tcp_listen() {
     char data_buffer[1024];
     int master_sock_fd = 0, comm_sock_fd = 0, addr_len = 0;
     struct sockaddr_in server_addr, client_addr;
-    fd_set readfds;
-
-    addr_len = sizeof(struct sockaddr);
 
     master_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 
+    memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(NETWORK_PORT);
-    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    bind(master_sock_fd, (struct sockaddr *) &server_addr, addr_len);
+    bind(master_sock_fd, (struct sockaddr *) &server_addr, sizeof(server_addr));
 
     listen(master_sock_fd, 5);
 
@@ -269,98 +263,90 @@ void tcp_listen() {
         printf("Listening TCP connections on port %d\n", NETWORK_PORT);
         
         memset(data_buffer, 0, sizeof(data_buffer));
-        FD_ZERO(&readfds);
-        FD_SET(master_sock_fd, &readfds);
+        addr_len = sizeof(client_addr);
 
-        select(master_sock_fd + 1, &readfds, NULL, NULL, NULL);
+        comm_sock_fd = accept(master_sock_fd, (struct sockaddr *) &client_addr, &addr_len);
 
-        if (FD_ISSET(master_sock_fd, &readfds)) {
-            comm_sock_fd = accept(master_sock_fd, (struct sockaddr *) &client_addr, &addr_len);
+        read(comm_sock_fd, (char *) data_buffer, sizeof(data_buffer));
 
-            recvfrom(comm_sock_fd, (char *) data_buffer, sizeof(data_buffer), 0,
-                (struct sockaddr *) &client_addr, &addr_len);
-
-            if (strncmp(data_buffer, LIST_REQUEST, strlen(LIST_REQUEST)) == 0) {
-                char name[32];
-                int i = strlen(LIST_REQUEST) + 1, j = 0, k;
-                while (data_buffer[i] != '\n') {
-                    name[j++] = data_buffer[i++];
-                }
-
-                printf("[NEW NODE] %s:%s:%u requests list of nodes\n", 
-                    name, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-
-                // Send list
-                struct node *current;
-                i = array_list_iter(nodes), j = 0;
-                memset(data_buffer, 0, sizeof(data_buffer));
-                while (network_name[j] != '\0') {
-                    data_buffer[j] = network_name[j];
-                    j++;
-                }
-                data_buffer[j++] = '\n';
-                for (; i != -1; i = array_list_next(nodes, i)) {
-                    current = array_list_get(nodes, i);
-
-                    for (k = 0; current->name[k] != '\0'; j++, k++) {
-		                data_buffer[j] = current->name[k];
-	                }
-                    data_buffer[j++] = ':';
-                    for (k = 0; current->ip[k] != '\0'; j++, k++) {
-		                data_buffer[j] = current->ip[k];
-	                }
-                    data_buffer[j++] = ':';
-                    for (k = 0; current->port[k] != '\0'; j++, k++) {
-		                data_buffer[j] = current->port[k];
-	                }
-                    data_buffer[j++] = '\n';
-                }
-
-                data_buffer[j++] = '.';
-                data_buffer[j] = '\n';
-
-                int bytes = sendto(comm_sock_fd, data_buffer, sizeof(data_buffer), 0,
-                    (struct sockaddr *) &client_addr, addr_len);
-
-                struct node *new_node = (struct node *)malloc(sizeof(struct node));
-		        for (; name[i] != '\0'; i++) {
-			        new_node->name[i] = name[i];
-		        }
-		        sprintf(new_node->ip, "%s", inet_ntoa(client_addr.sin_addr));
-		        unsigned int port = ntohs(client_addr.sin_port);
-		        sprintf(new_node->port, "%u", port);
-
-                new_node_info(new_node);
-                array_list_add(nodes, new_node);
-
-                printf("Successfully sent list (%d bytes) to %s and added him to list of nodes\n",
-                    bytes, name);
-            } else {
-                // Add new node
-                int start = 0, end = 0, i = 0;
-                while (data_buffer[end] != '\n') { end++; }
-
-                struct node *new_node = (struct node *)malloc(sizeof(struct node));
-                while (data_buffer[start] != ':') {
-                    new_node->name[i++] = data_buffer[start++];
-                }
-                i = 0;
-                start++;
-                while (data_buffer[start] != ':') {
-                    new_node->ip[i++] = data_buffer[start++];
-                }
-                i = 0;
-                start++;
-                while (start != end) {
-                    new_node->port[i++] = data_buffer[start++];
-                }
-
-                printf("[NEW NODE] %s:%u informs about new node - %s:%s:%s\n", 
-                    inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port),
-                        new_node->name, new_node->ip, new_node->port);
-
-                array_list_add(nodes, new_node);
+        if (strncmp(data_buffer, LIST_REQUEST, strlen(LIST_REQUEST)) == 0) {
+            char name[32];
+            int i = strlen(LIST_REQUEST) + 1, j = 0, k;
+            while (data_buffer[i] != '\n') {
+                name[j++] = data_buffer[i++];
             }
+
+            printf("[NEW NODE] %s:%s:%u requests list of nodes\n", 
+                name, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+
+            // Send list
+            struct node *current;
+            i = array_list_iter(nodes), j = 0;
+            memset(data_buffer, 0, sizeof(data_buffer));
+            while (network_name[j] != '\0') {
+                data_buffer[j] = network_name[j];
+                j++;
+            }
+            data_buffer[j++] = '\n';
+            for (; i != -1; i = array_list_next(nodes, i)) {
+                current = array_list_get(nodes, i);
+
+                for (k = 0; current->name[k] != '\0'; j++, k++) {
+		            data_buffer[j] = current->name[k];
+	            }
+                data_buffer[j++] = ':';
+                for (k = 0; current->ip[k] != '\0'; j++, k++) {
+		            data_buffer[j] = current->ip[k];
+	            }
+                data_buffer[j++] = ':';
+                for (k = 0; current->port[k] != '\0'; j++, k++) {
+		            data_buffer[j] = current->port[k];
+	            }
+                data_buffer[j++] = '\n';
+            }
+
+            data_buffer[j++] = '.';
+            data_buffer[j] = '\n';
+
+            write(comm_sock_fd, data_buffer, sizeof(data_buffer));
+
+            struct node *new_node = (struct node *)malloc(sizeof(struct node));
+		    for (; name[i] != '\0'; i++) {
+			    new_node->name[i] = name[i];
+		    }
+		    sprintf(new_node->ip, "%s", inet_ntoa(client_addr.sin_addr));
+		    unsigned int port = ntohs(client_addr.sin_port);
+		    sprintf(new_node->port, "%u", port);
+
+            new_node_info(new_node);
+            array_list_add(nodes, new_node);
+
+            printf("Successfully sent list of nodes to %s and added him to list of nodes\n", name);
+        } else {
+            // Add new node
+            int start = 0, end = 0, i = 0;
+            while (data_buffer[end] != '\n') { end++; }
+
+            struct node *new_node = (struct node *)malloc(sizeof(struct node));
+            while (data_buffer[start] != ':') {
+                new_node->name[i++] = data_buffer[start++];
+            }
+            i = 0;
+            start++;
+            while (data_buffer[start] != ':') {
+                new_node->ip[i++] = data_buffer[start++];
+            }
+            i = 0;
+            start++;
+            while (start != end) {
+                new_node->port[i++] = data_buffer[start++];
+            }
+
+            printf("[NEW NODE] %s:%u informs about new node - %s:%s:%s\n", 
+                inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port),
+                    new_node->name, new_node->ip, new_node->port);
+
+            array_list_add(nodes, new_node);
         }
     }
 }
