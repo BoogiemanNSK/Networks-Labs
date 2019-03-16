@@ -362,7 +362,11 @@ void tcp_request_network_connection(char *ip_string) {
 
         strcat(message, current->path);
         strcat(message, ":");
-        strcat(message, current->size);
+        
+        char size_str[4];
+        sprintf(size_str, "%d", current->size);
+        
+        strcat(message, size_str);
         strcat(message, "\n");
     }
     strcat(message, END_OF_MSG);
@@ -371,7 +375,7 @@ void tcp_request_network_connection(char *ip_string) {
 	read(sock_fd, message, MAX_BUFFER_SIZE);
 
     // Add other host's files to your array list
-    int start = 0, end = 0;
+    start = 0, end = 0;
     while (strncmp(message + end, END_OF_MSG, strlen(END_OF_MSG) != 0)) {
         current = (struct file *)malloc(sizeof(struct file));
 
@@ -379,8 +383,10 @@ void tcp_request_network_connection(char *ip_string) {
         strncpy(current->path, message + start, end - start);
         end++; start = end;
 
+        char size_str[4];
         while (message[end] != '\n') { end++; }
-        strncpy(current->size, message + start, end - start);
+        strncpy(size_str, message + start, end - start);
+        current->size = atoi(size_str);
         end++; start = end;
 
         array_list_add(files, current);
@@ -447,14 +453,16 @@ void sync_list_of_files(int sock_fd) {
 
         strcat(local_list, current->path);
         strcat(local_list, ":");
-        strcat(local_list, current->size);
+        char size_str[4];
+        sprintf(size_str, "%d", current->size);
+        strcat(local_list, size_str);
         strcat(local_list, "\n");
     }
     strcat(local_list, END_OF_MSG);
 
     // Add other host's files to your array list
     int files_num = 1, start = strlen(FILE_LIST_REQUEST), end = start;
-    while (strncmp(message + end, END_OF_MSG, strlen(END_OF_MSG) != 0)) {
+    while (strncmp(message + end, END_OF_MSG, strlen(END_OF_MSG)) != 0) {
         current = (struct file *)malloc(sizeof(struct file));
         files_num++;    
 
@@ -462,8 +470,10 @@ void sync_list_of_files(int sock_fd) {
         strncpy(current->path, message + start, end - start);
         end++; start = end;
 
+        char size_str[4];
         while (message[end] != '\n') { end++; }
-        strncpy(current->size, message + start, end - start);
+        strncpy(size_str, message + start, end - start);
+        current->size = atoi(size_str);
         end++; start = end;
 
         array_list_add(files, current);
@@ -487,7 +497,7 @@ void file_download() {
     struct sockaddr_in server_addr;
     struct node *current;
     printf("Please, specify name of file from list: ");
-    scanf("%s", &path);
+    scanf("%s", path);
 
     if (check_local_file(path) == 1) {
         printf("[ERR] You already have that file\n");
@@ -524,8 +534,6 @@ void file_download() {
             // Node has requested file
             printf("[OK] %s has requested file -> Downloading\n", current->name);
             
-            mkdir(SHARED_FOLDER_PATH, 0777);
-
             char *filename = malloc(MAX_PATH_SIZE);
             filename[0] = '\0';
             strcat(filename, SHARED_FOLDER_PATH);
@@ -543,7 +551,7 @@ void file_download() {
                 while (answer[end] != '\n') { end++; }
                 strncpy(message, answer + start, end - start);
                 message[end - start] = '\0';
-                fprintf(fp, message);
+                fprintf(fp, "%s", message);
             }
 
             fclose(fp);
@@ -562,8 +570,30 @@ void file_download() {
     free(answer);
 }
 
-void upload_file() {
+void upload_file(int sock_fd, char *file_name) {
+    char *answer = malloc(MAX_FILE_SIZE);
+    answer[0] = '\0';
+    strcat(answer, OK_MSG);
 
+    int size = count_words(file_name);
+    char size_str[4];
+    sprintf(size_str, "%d", size);
+    strcat(answer, size_str);
+    
+    FILE * f;
+    f = fopen(file_name, "r");
+
+    char *temp_buffer = malloc(MAX_BUFFER_SIZE);
+    for (int i = 0; i < size; i++) {
+        memset(&temp_buffer, 0, MAX_BUFFER_SIZE);
+        fscanf(f, "%s", temp_buffer);
+        strcat(answer, temp_buffer);
+    }
+
+    strcat(answer, END_OF_MSG);
+    write(sock_fd, answer, MAX_FILE_SIZE);
+
+    free(answer);
 }
 
 // Wait for incoming TCP connection and reply, depending on command received
@@ -664,7 +694,15 @@ void tcp_listen() {
             
             while (message[end] != '\n') { end++; }
             strncpy(file_name, message + start, end - start);
-            end++; start = end;
+
+            if (check_local_file(file_name) == 1) {
+                upload_file(comm_sock_fd, file_name);
+            } else {
+                message[0] = '\0';
+                strcat(message, ERR_MSG);
+                strcat(message, END_OF_MSG);
+                write(comm_sock_fd, message, MAX_BUFFER_SIZE);
+            }
 
             free (file_name);
         } else if (strncmp(message, FILE_ADD_MSG, strlen(FILE_ADD_MSG)) == 0) {
