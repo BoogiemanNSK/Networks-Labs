@@ -298,10 +298,10 @@ void tcp_request_network_connection(char *ip_string) {
 
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-    connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
-
     printf("Connecting to %s:%u...\n", 
         inet_ntoa(server_addr.sin_addr), ntohs(server_addr.sin_port));
+
+    connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
     message[0] = '\0';
     strcat(message, HELLO_MSG);
