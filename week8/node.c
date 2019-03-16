@@ -38,7 +38,7 @@
 #define MAX_FILE_SIZE 4096
 #define MAX_PATH_SIZE 64
 #define STARTING_ARRAY_LIST_SIZE 16
-#define PING_LIMIT 5
+#define PING_LIMIT 10
 
 // RELATIVE PATHS
 #define SHARED_FOLDER_PATH "Shared"
@@ -213,8 +213,6 @@ void * udp_send_ping(void *arg) {
             server_addr.sin_family = AF_INET;
             server_addr.sin_port = htons(PING_PORT);
             inet_pton(AF_INET, current->ip, &server_addr.sin_addr);
-
-	        printf("[PING] %s:%s:%u SENT {%d}\n", current->name, current->ip, PING_PORT, current->ping);
 
 	        sendto(sock_fd, PING, strlen(PING) + 1, 0,
 		        (struct sockaddr *)&server_addr, sizeof(server_addr));
@@ -400,7 +398,7 @@ void tcp_request_network_connection(char *ip_string) {
         array_list_add(files, current);
     }
 
-    printf("[OK] Successfully synced file libraries");
+    printf("[OK] Successfully synced file libraries\n");
 
     close(sock_fd);
     free(message);
@@ -450,7 +448,7 @@ void sync_list_of_files(int sock_fd) {
     // Read list from other host
     read(sock_fd, message, MAX_BUFFER_SIZE);
     if (strncmp(message, FILE_LIST_REQUEST, strlen(FILE_LIST_REQUEST)) != 0) {
-        printf("[ERR] In command of files receive request");
+        printf("[ERR] In command of files receive request\n");
         return;
     }
 
@@ -490,7 +488,7 @@ void sync_list_of_files(int sock_fd) {
     // Send previously built local list to host, so he could sync
     write(sock_fd, local_list, MAX_BUFFER_SIZE);
 
-    printf("[OK] Successfully synced file libraries");
+    printf("[OK] Successfully synced file libraries\n");
 
     free(message);
     free(local_list);
@@ -556,12 +554,16 @@ void file_download() {
             message[end - start] = '\0';
             file_size = atoi(message);
 
-            for (int i = 0; i < file_size; i++) {
+            for (int i = 0; i < file_size - 1; i++) {
                 while (answer[end] != '\n') { end++; }
                 strncpy(message, answer + start, end - start);
                 message[end - start] = '\0';
-                fprintf(fp, "%s", message);
+                fprintf(fp, "%s ", message);
             }
+            while (answer[end] != '\n') { end++; }
+            strncpy(message, answer + start, end - start);
+            message[end - start] = '\0';
+            fprintf(fp, "%s", message);
 
             fclose(fp);
             free(filename);
@@ -584,25 +586,35 @@ void upload_file(int sock_fd, char *file_name) {
     answer[0] = '\0';
     strcat(answer, OK_MSG);
 
-    int size = count_words(file_name);
+    char *temp_name = malloc(MAX_PATH_SIZE);
+    temp_name[0] = '\0';
+    strcat(temp_name, SHARED_FOLDER_PATH);
+    strcat(temp_name, "/");        
+    strcat(temp_name, file_name);
+    int size = count_words(temp_name);
+
     char size_str[4];
     sprintf(size_str, "%d", size);
     strcat(answer, size_str);
-    
+    strcat(answer, "\n");
+
     FILE *f;
-    f = fopen(file_name, "r");
+    f = fopen(temp_name, "r");
 
     char *temp_buffer = malloc(MAX_BUFFER_SIZE);
     for (int i = 0; i < size; i++) {
-        memset(&temp_buffer, 0, MAX_BUFFER_SIZE);
+        memset(temp_buffer, 0, MAX_BUFFER_SIZE);
         fscanf(f, "%s", temp_buffer);
         strcat(answer, temp_buffer);
+        strcat(answer, "\n");
     }
 
     strcat(answer, END_OF_MSG);
     write(sock_fd, answer, MAX_FILE_SIZE);
+    
     fclose(f);
-
+    free(temp_name);
+    free(temp_buffer);
     free(answer);
 }
 
@@ -626,7 +638,6 @@ void tcp_listen() {
     while (1) {
         char answer = '0';
         while (answer != 'n') {
-            printf("[DEBUG] Before print\n");
             print_file_library();
             printf("Do you want to download any files? [y/n] ");
             scanf(" %c", &answer);
@@ -707,7 +718,10 @@ void tcp_listen() {
             strncpy(file_name, message + start, end - start);
 
             if (check_local_file(file_name) == 1) {
+                printf("[FILE REQUEST] %s:%u asks for file %s -> Sending it\n",
+                    inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), file_name);
                 upload_file(comm_sock_fd, file_name);
+                printf("[OK] Successfully uploaded file\n");
             } else {
                 message[0] = '\0';
                 strcat(message, ERR_MSG);
