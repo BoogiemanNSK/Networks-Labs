@@ -41,8 +41,8 @@
 #define PING_LIMIT 5
 
 // RELATIVE PATHS
-#define SHARED_FOLDER_PATH "/Shared/"
-#define REMOVED_FOLDER_PATH "/Removed/"
+#define SHARED_FOLDER_PATH "Shared"
+#define REMOVED_FOLDER_PATH "Removed"
 
 // GLOBALS
 p_array_list nodes;
@@ -112,15 +112,14 @@ void print_file_library() {
 
 int count_words(char *path) {
     FILE * f;
-    char c;
     f = fopen(path, "r");
     int count = 1;
-
-    while((c = fgetc(f)) != EOF) {
-        if(c == ' ')
-            count++;
+    char c = fgetc(f);
+    while(c != EOF) {
+        if (c == ' ' || c == '\n') { count++; }
+        c = fgetc(f);
     }
-    
+    fclose(f);    
     return count;
 }
 
@@ -132,10 +131,19 @@ void load_file_library() {
     {
         while ((dir = readdir(d)) != NULL)
         {
+            if (dir->d_name[0] == '.') { continue; }
+
             struct file *new_file = (struct file *)malloc(sizeof(struct file));
 
             strcpy(new_file->path, dir->d_name);
-            new_file->size = count_words(new_file->path);
+
+            char *temp_name = malloc(MAX_PATH_SIZE);
+            temp_name[0] = '\0';
+            strcat(temp_name, SHARED_FOLDER_PATH);
+            strcat(temp_name, "/");        
+            strcat(temp_name, new_file->path);
+            new_file->size = count_words(temp_name);
+            free(temp_name);
 
             array_list_add(files, new_file);
         }
@@ -537,6 +545,7 @@ void file_download() {
             char *filename = malloc(MAX_PATH_SIZE);
             filename[0] = '\0';
             strcat(filename, SHARED_FOLDER_PATH);
+            strcat(filename, "/");
             strcat(filename, path);
             FILE *fp = fopen(filename, "ab+");
 
@@ -580,7 +589,7 @@ void upload_file(int sock_fd, char *file_name) {
     sprintf(size_str, "%d", size);
     strcat(answer, size_str);
     
-    FILE * f;
+    FILE *f;
     f = fopen(file_name, "r");
 
     char *temp_buffer = malloc(MAX_BUFFER_SIZE);
@@ -592,6 +601,7 @@ void upload_file(int sock_fd, char *file_name) {
 
     strcat(answer, END_OF_MSG);
     write(sock_fd, answer, MAX_FILE_SIZE);
+    fclose(f);
 
     free(answer);
 }
@@ -616,6 +626,7 @@ void tcp_listen() {
     while (1) {
         char answer = '0';
         while (answer != 'n') {
+            printf("[DEBUG] Before print\n");
             print_file_library();
             printf("Do you want to download any files? [y/n] ");
             scanf(" %c", &answer);
