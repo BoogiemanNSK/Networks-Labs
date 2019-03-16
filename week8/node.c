@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <dirent.h>
 
 #include "alist.h"
 
@@ -34,11 +35,18 @@
 #define NAME_SIZE 32
 #define IP_PORT_SIZE 16
 #define MAX_BUFFER_SIZE 2048
-#define STARTING_NODES_ARRAY_SIZE 16
+#define MAX_FILE_SIZE 4096
+#define MAX_PATH_SIZE 64
+#define STARTING_ARRAY_LIST_SIZE 16
 #define PING_LIMIT 5
+
+// RELATIVE PATHS
+#define SHARED_FOLDER_PATH "/Shared/"
+#define REMOVED_FOLDER_PATH "/Removed/"
 
 // GLOBALS
 p_array_list nodes;
+p_array_list files;
 char network_name[NAME_SIZE];
 
 // Struct that stores nodes info
@@ -49,9 +57,97 @@ struct node {
     int ping;
 };
 
+// Struct that stores files info
+struct file {
+    char path[MAX_PATH_SIZE];
+    int size;
+};
+
+////// FILES INTERACTION //////
+
+// Check if file with given name (path) is in local library
+// 0 - No, 1 - Yes
+int check_local_file(char *path) {
+    DIR *d;
+    struct dirent *dir;
+    d = opendir(SHARED_FOLDER_PATH);
+    if (d)
+    {
+        while ((dir = readdir(d)) != NULL)
+        {
+            if (strcmp(dir->d_name, path) == 0) {
+                return 1;
+            }
+        }
+        closedir(d);
+    }
+    return 0;
+}
+
+// Check if file with given name (path) is in shared library
+// 0 - No, 1 - Yes
+int check_shared_file(char *path) {
+    struct file *current;
+    for (int i = array_list_iter(files); i != -1; i = array_list_next(files, i)) {
+        current = array_list_get(files, i);
+        if (strcmp(current->path, path) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void print_file_library() {
+    printf("\n=== SHARED FILE LIBRARY ===\n");
+    
+    int k = 0;
+    struct file *current;
+    for (int i = array_list_iter(files); i != -1; i = array_list_next(files, i), k++) {
+        current = array_list_get(files, i);
+        printf("[%d] - %s (%d words)\n", k, current->path, current->size);
+    }
+
+    printf("===========================\n");
+}
+
+int count_words(char *path) {
+    FILE * f;
+    char c;
+    f = fopen(path, "r");
+    int count = 1;
+
+    while((c = fgetc(f)) != EOF) {
+        if(c == ' ')
+            count++;
+    }
+    
+    return count;
+}
+
+void load_file_library() {
+    DIR *d;
+    struct dirent *dir;
+    d = opendir(SHARED_FOLDER_PATH);
+    if (d)
+    {
+        while ((dir = readdir(d)) != NULL)
+        {
+            struct file *new_file = (struct file *)malloc(sizeof(struct file));
+
+            strcpy(new_file->path, dir->d_name);
+            new_file->size = count_words(new_file->path);
+
+            array_list_add(files, new_file);
+        }
+        closedir(d);
+    }
+}
+
 ////// UDP CONNECTIONS //////
 
-// Reply to every PING by PONG [uses separate thread #1]
+// Reply to every PING by PONG and for every PONG
+// set allowed num of missed PINGs to PING_LIMIT
+// [Uses separate thread #1]
 void * udp_receive_ping(void *arg) {
     char ping_buffer[strlen(PING) + 1];
     int sock_fd = 0, addr_len = 0;
@@ -90,7 +186,8 @@ void * udp_receive_ping(void *arg) {
     }
 }
 
-// Send PING to every node in list [uses separate thread #2]
+// Send PING to every node in list
+// [Uses separate thread #2]
 void * udp_send_ping(void *arg) {
     int sock_fd = 0;
     struct sockaddr_in server_addr;
@@ -126,6 +223,13 @@ void * udp_send_ping(void *arg) {
 }
 
 /////// TCP CONNECTIONS //////
+
+// Compares state of shared files folder with network file list
+// If found any changes - report them to all known nodes
+// [Uses separate thread #3]
+void * scan_file_library(void *arg) {
+    // TODO
+}
 
 // Send to every known node info about new connected (to me) node
 // And then add it to my list of known nodes
@@ -240,14 +344,49 @@ void tcp_request_network_connection(char *ip_string) {
         end++; start = end;
 
         while (message[end] != '\n') { end++; }
-        strncpy(new_node->name, message + start, end - start);
+        strncpy(new_node->port, message + start, end - start);
         end++; start = end;
+
+        array_list_add(nodes, new_node);
     }
 
     printf("[OK] List of %d nodes successfully received from %s!\n",
         nodes_num, server_name);
 
-    // TODO - FILE LIST SYNC
+    // Build request and your own list (from array list)
+    message[0] = '\0';
+    strcat(message, FILE_LIST_REQUEST);
+    struct file *current;
+    for (int i = array_list_iter(files); i != -1; i = array_list_next(files, i)) {
+        current = array_list_get(files, i);
+
+        strcat(message, current->path);
+        strcat(message, ":");
+        strcat(message, current->size);
+        strcat(message, "\n");
+    }
+    strcat(message, END_OF_MSG);
+
+    write(sock_fd, message, MAX_BUFFER_SIZE);
+	read(sock_fd, message, MAX_BUFFER_SIZE);
+
+    // Add other host's files to your array list
+    int start = 0, end = 0;
+    while (strncmp(message + end, END_OF_MSG, strlen(END_OF_MSG) != 0)) {
+        current = (struct file *)malloc(sizeof(struct file));
+
+        while (message[end] != ':') { end++; }
+        strncpy(current->path, message + start, end - start);
+        end++; start = end;
+
+        while (message[end] != '\n') { end++; }
+        strncpy(current->size, message + start, end - start);
+        end++; start = end;
+
+        array_list_add(files, current);
+    }
+
+    printf("[OK] Successfully synced file libraries");
 
     close(sock_fd);
     free(message);
@@ -285,9 +424,146 @@ void send_list_of_nodes(int sock_fd) {
 
     write(sock_fd, message, MAX_BUFFER_SIZE);
 
-    // TODO - FILE LIST SYNC
+    free(message);
+}
+
+// Synchronize lists with host from given socket
+void sync_list_of_files(int sock_fd) {
+    char *message = malloc(MAX_BUFFER_SIZE);
+    char *local_list = malloc(MAX_BUFFER_SIZE);
+    struct file *current;
+    
+    // Read list from other host
+    read(sock_fd, message, MAX_BUFFER_SIZE);
+    if (strncmp(message, FILE_LIST_REQUEST, strlen(FILE_LIST_REQUEST)) != 0) {
+        printf("[ERR] In command of files receive request");
+        return;
+    }
+
+    // Build your own list (from array list)
+    local_list[0] = '\0';
+    for (int i = array_list_iter(files); i != -1; i = array_list_next(files, i)) {
+        current = array_list_get(files, i);
+
+        strcat(local_list, current->path);
+        strcat(local_list, ":");
+        strcat(local_list, current->size);
+        strcat(local_list, "\n");
+    }
+    strcat(local_list, END_OF_MSG);
+
+    // Add other host's files to your array list
+    int files_num = 1, start = strlen(FILE_LIST_REQUEST), end = start;
+    while (strncmp(message + end, END_OF_MSG, strlen(END_OF_MSG) != 0)) {
+        current = (struct file *)malloc(sizeof(struct file));
+        files_num++;    
+
+        while (message[end] != ':') { end++; }
+        strncpy(current->path, message + start, end - start);
+        end++; start = end;
+
+        while (message[end] != '\n') { end++; }
+        strncpy(current->size, message + start, end - start);
+        end++; start = end;
+
+        array_list_add(files, current);
+    }
+
+    // Send previously built local list to host, so he could sync
+    write(sock_fd, local_list, MAX_BUFFER_SIZE);
+
+    printf("[OK] Successfully synced file libraries");
 
     free(message);
+    free(local_list);
+}
+
+// Ask user for file path and then ask every known node for it
+void file_download() {
+    char *path;
+    char *message = malloc(MAX_BUFFER_SIZE);
+    char *answer = malloc(MAX_FILE_SIZE);
+    int sock_fd = 0, i = array_list_iter(nodes), j = 0;;
+    struct sockaddr_in server_addr;
+    struct node *current;
+    printf("Please, specify name of file from list: ");
+    scanf("%s", &path);
+
+    if (check_local_file(path) == 1) {
+        printf("[ERR] You already have that file\n");
+        return;
+    }
+
+    if (check_shared_file(path) == 0) {
+        printf("[ERR] File with specified name does not exist in file library\n");
+        return;
+    }
+
+    message[0] = '\0';
+    strcat(message, FILE_RETRIEVE_REQUEST);
+    strcat(message, path);
+    strcat(message, "\n");
+    strcat(message, END_OF_MSG);
+
+    sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    
+    for (; i != -1; i = array_list_next(nodes, i)) {
+        current = array_list_get(nodes, i);
+
+        memset(&server_addr, 0, sizeof(server_addr));
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_port = htons(NETWORK_PORT);
+        inet_pton(AF_INET, current->ip, &server_addr.sin_addr);
+
+        connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+
+	    write(sock_fd, message, MAX_BUFFER_SIZE);
+        read(sock_fd, answer, MAX_FILE_SIZE);
+
+        if (strncmp(OK_MSG, answer, strlen(OK_MSG)) == 0) {
+            // Node has requested file
+            printf("[OK] %s has requested file -> Downloading\n", current->name);
+            
+            mkdir(SHARED_FOLDER_PATH, 0777);
+
+            char *filename = malloc(MAX_PATH_SIZE);
+            filename[0] = '\0';
+            strcat(filename, SHARED_FOLDER_PATH);
+            strcat(filename, path);
+            FILE *fp = fopen(filename, "ab+");
+
+            int start = strlen(OK_MSG), end = start, file_size = 0;
+            
+            while (answer[end] != '\n') { end++; }
+            strncpy(message, answer + start, end - start);
+            message[end - start] = '\0';
+            file_size = atoi(message);
+
+            for (int i = 0; i < file_size; i++) {
+                while (answer[end] != '\n') { end++; }
+                strncpy(message, answer + start, end - start);
+                message[end - start] = '\0';
+                fprintf(fp, message);
+            }
+
+            fclose(fp);
+            free(filename);
+            break;
+        } else if (strncmp(ERR_MSG, answer, strlen(ERR_MSG)) == 0) {
+            // Node does not have requested file
+        } else {
+            printf("[ACK] %s did not respond correctly\n", current->name);
+        }
+
+        close(sock_fd);
+    }
+
+    free(message);
+    free(answer);
+}
+
+void upload_file() {
+
 }
 
 // Wait for incoming TCP connection and reply, depending on command received
@@ -308,8 +584,18 @@ void tcp_listen() {
     listen(master_sock_fd, 5);
 
     while (1) {
+        char answer = '0';
+        while (answer != 'n') {
+            print_file_library();
+            printf("Do you want to download any files? [y/n] ");
+            scanf(" %c", &answer);
+            if (answer == 'y') {
+                file_download();
+            }
+            getchar();
+        }
+
         printf("[TCP Port = %d | UDP Port = %d]\n", NETWORK_PORT, PING_PORT);
-        
         message[0] = '\0';
 
         addr_len = sizeof(client_addr);
@@ -330,6 +616,7 @@ void tcp_listen() {
                 new_node->name, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
             send_list_of_nodes(comm_sock_fd);
+            sync_list_of_files(comm_sock_fd);
             
             new_node_info(new_node);
 
@@ -372,7 +659,14 @@ void tcp_listen() {
                 inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port),
                     new_node->name, new_node->ip, new_node->port);
         } else if (strncmp(message, FILE_RETRIEVE_REQUEST, strlen(FILE_RETRIEVE_REQUEST)) == 0) {
-            // TODO - FILE SENDER
+            int start = strlen(FILE_RETRIEVE_REQUEST), end = start;
+            char *file_name = malloc(MAX_PATH_SIZE);
+            
+            while (message[end] != '\n') { end++; }
+            strncpy(file_name, message + start, end - start);
+            end++; start = end;
+
+            free (file_name);
         } else if (strncmp(message, FILE_ADD_MSG, strlen(FILE_ADD_MSG)) == 0) {
             // TODO - ADD FILE TO LIST
         } else if (strncmp(message, FILE_REMOVE_MSG, strlen(FILE_REMOVE_MSG)) == 0) {
@@ -401,9 +695,13 @@ int main() {
         getchar();
     }
 
-    nodes = create_array_list(STARTING_NODES_ARRAY_SIZE);
+    nodes = create_array_list(STARTING_ARRAY_LIST_SIZE);
+    files = create_array_list(STARTING_ARRAY_LIST_SIZE);
+    load_file_library();
+
     pthread_t udp_send_ping_thread;
     pthread_t udp_receive_ping_thread;
+    // pthread_t file_library_monitoring_thread;
 
     // Ask specidied ip for list of connected nodes
     if (answer == 'n') {
@@ -416,6 +714,9 @@ int main() {
     // Create PING/PONG loops
     pthread_create(&udp_send_ping_thread, NULL, udp_send_ping, NULL);
     pthread_create(&udp_receive_ping_thread, NULL, udp_receive_ping, NULL);
+
+    // Create thread to monitor changes in file library
+    // pthread_create(&file_library_monitoring_thread, NULL, scan_file_library, NULL);
 
     // Listen for new nodes info
     tcp_listen();
