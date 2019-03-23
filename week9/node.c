@@ -94,7 +94,7 @@ char *get_my_ip() {
     ifr.ifr_addr.sa_family = AF_INET;
     memcpy(ifr.ifr_name, NETWORK_IF, IFNAMSIZ - 1);
     ioctl(fd, SIOCGIFADDR, &ifr);
-    strcpy((char *) ip_address, inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+    strcpy(ip_address, inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
 
     close(fd);
     return ip_address;
@@ -112,6 +112,7 @@ char **get_local_files() {
     {
         while ((dir = readdir(d)) != NULL)
         {
+            if (dir->d_name[0] == '.') { continue; }
             files[i] = malloc(MAX_PATH_SIZE);
             files[i][0] = '\0';
             strcat(files[i], dir->d_name);
@@ -135,6 +136,10 @@ struct node *get_node_by_string(char *str) {
         t++;
     }
     temp[t] = '\0';
+
+    if (strncmp(temp, network_name, strlen(temp)) == 0) {
+        return current;
+    }
 
     int exist = 0;
     for (int i = array_list_iter(nodes); i != -1; i = array_list_next(nodes, i)) {
@@ -185,12 +190,22 @@ void rewrite_files(struct node *p, char *msg) {
         i++;
     }
 
-    while(msg[i] != '\0') {
+    printf("%c\n", msg[i - 1]);
+
+    int add = 0;
+    while(msg[i] != '\0' && msg[i] != '\r') {
         t = 0;
-        while (msg[i] != ',' && msg[i] != '\0') {
+
+        if (add || p->files[k] == NULL) {
+            p->files[k] = malloc(MAX_PATH_SIZE);
+            add = 1;
+        }
+        
+        while (msg[i] != ',' && msg[i] != '\0' && msg[i] != '\r') {
             p->files[k][t] = msg[i];
             t++; i++;
         }
+        
         p->files[k][t] = '\0';
         k++;
     }
@@ -208,11 +223,12 @@ void * send_sync(void *arg) {
 
     int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-    while(1){
+    while(1) {
         sleep(2);
 
         for (int i = array_list_iter(nodes); i != -1; i = array_list_next(nodes, i)) {
             current = array_list_get(nodes, i);
+
             int port = atoi(current->port);
 
             memset(&server_addr, 0, sizeof(server_addr));
@@ -247,7 +263,6 @@ void * send_sync(void *arg) {
 
             write(sock_fd, message, MAX_BUFFER_SIZE);
             free(my_ip);
-            free(files_lib);
 
             char size_str[4];
             sprintf(size_str, "%d", (int)nodes->count);
@@ -279,7 +294,9 @@ void receive_sync(int comm_fd) {
     int n;
 
     read(comm_fd, message, MAX_BUFFER_SIZE);
+    
     current = get_node_by_string(message);
+
     rewrite_files(current, message);
 
     read(comm_fd, message, MAX_BUFFER_SIZE);
@@ -372,6 +389,8 @@ void * send_request(void *arg) {
     }
     fclose(fp);
 
+    printf("Successfully downloaded %s\n", filename);
+
     free(filename);
     free(path);
     free(message);
@@ -395,7 +414,6 @@ void upload_file(int sock_fd, char *file_name) {
 
     char *temp_buffer = malloc(MAX_BUFFER_SIZE);
     for (int i = 0; i < size; i++) {
-        memset(temp_buffer, 0, MAX_BUFFER_SIZE);
         fscanf(f, "%s", temp_buffer);
         write(sock_fd, temp_buffer, MAX_BUFFER_SIZE);
     }
@@ -459,6 +477,7 @@ void wait_requests() {
     }
 }
 
+// Sync with the first node (someone in network)
 void first_sync(char *ip_port) {
     char *message = malloc(MAX_BUFFER_SIZE);
     int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -514,7 +533,8 @@ void first_sync(char *ip_port) {
     free(ip);
     free(port);
     free(my_ip);
-    free(files_lib);
+
+    close(sock_fd);
 }
 
 
