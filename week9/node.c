@@ -33,7 +33,7 @@
 
 // STRINGS
 #define FILES_LIBRARY_PATH "Shared"
-#define NETWORK_IF "eth1"
+#define NETWORK_IF "wifi0"
 
 // GLOBALS
 p_array_list nodes;
@@ -239,6 +239,7 @@ void * send_sync(void *arg) {
             connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
             write(sock_fd, SYNC_MSG, strlen(SYNC_MSG));
+            sleep(1);
 
             char *my_ip = get_my_ip();
             char **files_lib = get_local_files();
@@ -262,11 +263,13 @@ void * send_sync(void *arg) {
             }
 
             write(sock_fd, message, MAX_BUFFER_SIZE);
+            sleep(1);
             free(my_ip);
 
             char size_str[4];
             sprintf(size_str, "%d", (int)nodes->count);
             write(sock_fd, size_str, 4);
+            sleep(1);
 
             for (int p = array_list_iter(nodes); p != -1; p = array_list_next(nodes, p)) {
                 cur = array_list_get(nodes, p);
@@ -280,6 +283,7 @@ void * send_sync(void *arg) {
                 strcat(message, ":");
 
                 write(sock_fd, message, MAX_BUFFER_SIZE);
+                sleep(1);
             }
         }
     }
@@ -295,6 +299,8 @@ void receive_sync(int comm_fd) {
 
     read(comm_fd, message, MAX_BUFFER_SIZE);
     
+    printf("Message: %s\n", message);
+
     current = get_node_by_string(message);
 
     rewrite_files(current, message);
@@ -302,8 +308,11 @@ void receive_sync(int comm_fd) {
     read(comm_fd, message, MAX_BUFFER_SIZE);
     n = atoi(message);
 
+    printf("Message: %s\n", message);
+
     for (int i = 0; i < n; i++) {
         read(comm_fd, message, MAX_BUFFER_SIZE);
+        printf("Message: %s\n", message);
         get_node_by_string(message);
     }
 
@@ -371,7 +380,9 @@ void * send_request(void *arg) {
     connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
 	write(sock_fd, REQUEST_MSG, strlen(REQUEST_MSG));
+    sleep(1);
     write(sock_fd, filename, strlen(filename));
+    sleep(1);
 
     read(sock_fd, message, MAX_BUFFER_SIZE);
     int size = atoi(message);
@@ -408,6 +419,7 @@ void upload_file(int sock_fd, char *file_name) {
     char size_str[4];
     sprintf(size_str, "%d", size);
     write(sock_fd, size_str, 4);
+    sleep(1);
 
     FILE *f;
     f = fopen(temp_name, "r");
@@ -416,6 +428,7 @@ void upload_file(int sock_fd, char *file_name) {
     for (int i = 0; i < size; i++) {
         fscanf(f, "%s", temp_buffer);
         write(sock_fd, temp_buffer, MAX_BUFFER_SIZE);
+        sleep(1);
     }
     
     fclose(f);
@@ -428,7 +441,9 @@ void * reply(void *arg) {
     char *message = malloc(MAX_BUFFER_SIZE);
     int comm_fd = *(int*)(arg);
 
+    printf("Received connection\n");
     read(comm_fd, message, MAX_BUFFER_SIZE);
+    printf("Message: %s\n", message);
 
     if (strncmp(message, REQUEST_MSG, strlen(REQUEST_MSG)) == 0) {
         char *filename = malloc(MAX_PATH_SIZE);
@@ -505,6 +520,7 @@ void first_sync(char *ip_port) {
     connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
     write(sock_fd, SYNC_MSG, strlen(SYNC_MSG));
+    sleep(1);
 
     char *my_ip = get_my_ip();
     char **files_lib = get_local_files();
@@ -528,7 +544,9 @@ void first_sync(char *ip_port) {
     }
 
     write(sock_fd, message, MAX_BUFFER_SIZE);
+    sleep(1);
     write(sock_fd, "0", 4);
+    sleep(1);
 
     free(ip);
     free(port);
