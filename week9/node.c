@@ -6,6 +6,8 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/select.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -14,11 +16,11 @@
 #include "alist.h"
 
 // PORT
-#define MY_PORT 12000
+#define MY_PORT "12000"
 
 // COMMANDS
-#define SYNC_MSG 1
-#define REQUEST_MSG 0
+#define SYNC_MSG "1"
+#define REQUEST_MSG "0"
 
 // FIXED SIZES
 #define NAME_SIZE 32
@@ -29,8 +31,9 @@
 #define STARTING_ARRAY_LIST_SIZE 16
 #define PING_LIMIT 10
 
-// PATHS
+// STRINGS
 #define FILES_LIBRARY_PATH "Shared"
+#define NETWORK_IF "eth1"
 
 // GLOBALS
 p_array_list nodes;
@@ -41,6 +44,8 @@ struct node {
     char name[NAME_SIZE];
     char ip[IP_PORT_SIZE];
     char port[IP_PORT_SIZE];
+
+    char **files;
 };
 
 
@@ -65,6 +70,7 @@ int check_local_file(char *path) {
     return 0;
 }
 
+// Counts number of spaces or '\n' + 1 in a given file
 int count_words(char *path) {
     FILE * f;
     f = fopen(path, "r");
@@ -78,152 +84,311 @@ int count_words(char *path) {
     return count;
 }
 
+// Returns IP string
+char *get_my_ip() {
+    char *ip_address = malloc(IP_PORT_SIZE);
+    int fd;
+    struct ifreq ifr;
+    
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    ifr.ifr_addr.sa_family = AF_INET;
+    memcpy(ifr.ifr_name, NETWORK_IF, IFNAMSIZ - 1);
+    ioctl(fd, SIOCGIFADDR, &ifr);
+    strcpy((char *) ip_address, inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr));
+
+    close(fd);
+    return ip_address;
+}
+
+// Returns names of files in local library
+char **get_local_files() {
+    DIR *d;
+    struct dirent *dir;
+    char **files = malloc(MAX_BUFFER_SIZE / MAX_PATH_SIZE);
+    int i = 0;
+
+    d = opendir(FILES_LIBRARY_PATH);
+    if (d)
+    {
+        while ((dir = readdir(d)) != NULL)
+        {
+            files[i] = malloc(MAX_PATH_SIZE);
+            files[i][0] = '\0';
+            strcat(files[i], dir->d_name);
+            i++;
+        }
+        closedir(d);
+    }
+    
+    files[i] = NULL;
+    return files;
+}
+
+// Returns pointer to node from its string, creates new node if not exist
+struct node *get_node_by_string(char *str) {
+    char *temp = malloc(NAME_SIZE);
+    struct node *current;
+    
+    int t = 0;
+    while (str[t] != ':') {
+        temp[t] = str[t];
+        t++;
+    }
+    temp[t] = '\0';
+
+    int exist = 0;
+    for (int i = array_list_iter(nodes); i != -1; i = array_list_next(nodes, i)) {
+        current = array_list_get(nodes, i);
+        if (strncmp(temp, current->name, strlen(temp)) == 0) {
+            exist = 1;
+            break;
+        }
+    }
+
+    if (exist == 0) {
+        struct node *new_node = malloc(sizeof(struct node));
+        strncpy(new_node->name, temp, strlen(temp));
+        
+        int i = 0;
+        t++;
+        while (str[t] != ':') {
+            temp[i] = str[t];
+            i++; t++;
+        }
+        temp[i] = '\0';
+        strncpy(new_node->ip, temp, strlen(temp));
+
+        i = 0;
+        t++;
+        while (str[t] != ':') {
+            temp[i] = str[t];
+            i++; t++;
+        }
+        temp[i] = '\0';
+        strncpy(new_node->port, temp, strlen(temp));
+
+        new_node->files = malloc(MAX_BUFFER_SIZE / MAX_PATH_SIZE);
+        new_node->files[0] = NULL;
+
+        array_list_add(nodes, new_node);
+        current = new_node;
+    }
+
+    free(temp);
+    return current;
+}
+
+void rewrite_files(struct node *p, char *msg) {
+    int i = 0, k = 0, t;
+    for (int j = 0; j < 3; j++) {
+        while (msg[i] != ':') { i++; }
+        i++;
+    }
+
+    while(msg[i] != '\0') {
+        t = 0;
+        while (msg[i] != ',' && msg[i] != '\0') {
+            p->files[k][t] = msg[i];
+            t++; i++;
+        }
+        p->files[k][t] = '\0';
+        k++;
+    }
+    p->files[k] = NULL;
+}
+
+
 ////// TCP CONNECTIONS //////
 
 // Send list of known nodes to all nodes
-void send_sync() {
+void * send_sync(void *arg) {
     char *message = malloc(MAX_BUFFER_SIZE);
-    struct node *current;
-    
-    message[0] = '\0';
-    strcat(message, network_name);
-    strcat(message, "\n");
-    strcat(message, END_OF_MSG);
+    struct node *current, *cur;
+    struct sockaddr_in server_addr;
 
-    write(sock_fd, message, MAX_BUFFER_SIZE);
-    read(sock_fd, message, MAX_BUFFER_SIZE);
+    int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-    if (strncmp(message, NODE_LIST_REQUEST, strlen(NODE_LIST_REQUEST)) == 0) {
-        printf("[OK] Node list request received -> Sending list\n");
+    while(1){
+        sleep(2);
+
+        for (int i = array_list_iter(nodes); i != -1; i = array_list_next(nodes, i)) {
+            current = array_list_get(nodes, i);
+            int port = atoi(current->port);
+
+            memset(&server_addr, 0, sizeof(server_addr));
+            server_addr.sin_family = AF_INET;
+            server_addr.sin_port = htons(port);
+            inet_pton(AF_INET, current->ip, &server_addr.sin_addr);
+
+            connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+
+            write(sock_fd, SYNC_MSG, strlen(SYNC_MSG));
+
+            char *my_ip = get_my_ip();
+            char **files_lib = get_local_files();
+
+            message[0] = '\0';
+            strcat(message, network_name);
+            strcat(message, ":");
+            strcat(message, my_ip);
+            strcat(message, ":");
+            strcat(message, MY_PORT);
+
+            if (files_lib[0] == NULL) {
+                strcat(message, ":");
+            }
+
+            int k = 0;
+            while (files_lib[k] != NULL) {
+                strcat(message, ":");
+                strcat(message, files_lib[k]);
+                k++;
+            }
+
+            write(sock_fd, message, MAX_BUFFER_SIZE);
+            free(my_ip);
+            free(files_lib);
+
+            char size_str[4];
+            sprintf(size_str, "%d", (int)nodes->count);
+            write(sock_fd, size_str, 4);
+
+            for (int p = array_list_iter(nodes); p != -1; p = array_list_next(nodes, p)) {
+                cur = array_list_get(nodes, p);
+
+                message[0] = '\0';
+                strcat(message, current->name);
+                strcat(message, ":");
+                strcat(message, current->ip);
+                strcat(message, ":");
+                strcat(message, current->port);
+                strcat(message, ":");
+
+                write(sock_fd, message, MAX_BUFFER_SIZE);
+            }
+        }
     }
-
-    message[0] = '\0';
-    for (int i = array_list_iter(nodes); i != -1; i = array_list_next(nodes, i)) {
-        current = array_list_get(nodes, i);
-
-        strcat(message, current->name);
-        strcat(message, ":");
-        strcat(message, current->ip);
-        strcat(message, ":");
-        strcat(message, current->port);
-        strcat(message, "\n");
-    }
-    strcat(message, END_OF_MSG);
-
-    write(sock_fd, message, MAX_BUFFER_SIZE);
 
     free(message);
 }
 
 // On receiving sync, compare your list and received
-void receive_sync() {
-
-}
-
-// Ask all known nodes for file and download it
-void send_request(char *path) {
-    char *path;
+void receive_sync(int comm_fd) {
     char *message = malloc(MAX_BUFFER_SIZE);
-    char *answer = malloc(MAX_FILE_SIZE);
-    int sock_fd = 0, i = array_list_iter(nodes), j = 0;;
-    struct sockaddr_in server_addr;
     struct node *current;
-    printf("Please, specify name of file from list: ");
-    scanf("%s", path);
+    int n;
 
-    if (check_local_file(path) == 1) {
-        printf("[ERR] You already have that file\n");
-        return;
-    }
+    read(comm_fd, message, MAX_BUFFER_SIZE);
+    current = get_node_by_string(message);
+    rewrite_files(current, message);
 
-    if (check_shared_file(path) == 0) {
-        printf("[ERR] File with specified name does not exist in file library\n");
-        return;
-    }
+    read(comm_fd, message, MAX_BUFFER_SIZE);
+    n = atoi(message);
 
-    message[0] = '\0';
-    strcat(message, FILE_RETRIEVE_REQUEST);
-    strcat(message, path);
-    strcat(message, "\n");
-    strcat(message, END_OF_MSG);
-
-    sock_fd = socket(AF_INET, SOCK_STREAM, 0);
-    
-    for (; i != -1; i = array_list_next(nodes, i)) {
-        current = array_list_get(nodes, i);
-
-        memset(&server_addr, 0, sizeof(server_addr));
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(NETWORK_PORT);
-        inet_pton(AF_INET, current->ip, &server_addr.sin_addr);
-
-        connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
-
-	    write(sock_fd, message, MAX_BUFFER_SIZE);
-        read(sock_fd, answer, MAX_FILE_SIZE);
-
-        if (strncmp(OK_MSG, answer, strlen(OK_MSG)) == 0) {
-            // Node has requested file
-            printf("[OK] %s has requested file -> Downloading\n", current->name);
-            
-            char *filename = malloc(MAX_PATH_SIZE);
-            filename[0] = '\0';
-            strcat(filename, SHARED_FOLDER_PATH);
-            strcat(filename, "/");
-            strcat(filename, path);
-            FILE *fp = fopen(filename, "ab+");
-
-            int start = strlen(OK_MSG), end = start, file_size = 0;
-            
-            while (answer[end] != '\n') { end++; }
-            strncpy(message, answer + start, end - start);
-            message[end - start] = '\0';
-            file_size = atoi(message);
-
-            for (int i = 0; i < file_size - 1; i++) {
-                while (answer[end] != '\n') { end++; }
-                strncpy(message, answer + start, end - start);
-                message[end - start] = '\0';
-                fprintf(fp, "%s ", message);
-            }
-            while (answer[end] != '\n') { end++; }
-            strncpy(message, answer + start, end - start);
-            message[end - start] = '\0';
-            fprintf(fp, "%s", message);
-
-            fclose(fp);
-            free(filename);
-            break;
-        } else if (strncmp(ERR_MSG, answer, strlen(ERR_MSG)) == 0) {
-            // Node does not have requested file
-        } else {
-            printf("[ACK] %s did not respond correctly\n", current->name);
-        }
-
-        close(sock_fd);
+    for (int i = 0; i < n; i++) {
+        read(comm_fd, message, MAX_BUFFER_SIZE);
+        get_node_by_string(message);
     }
 
     free(message);
-    free(answer);
+}
+
+// Ask all known nodes for file and download it
+void * send_request(void *arg) {
+    char answer = '0';
+    while (answer != 'y' && answer != 'n') {
+        printf("Do you want to download any files? [y/n] ");
+        scanf(" %c", &answer);
+        getchar();
+    }
+
+    if (answer == 'n') {
+        return NULL;
+    }
+
+    char *filename = malloc(MAX_PATH_SIZE);
+    printf("Specify filename: ");
+    scanf("%s", filename);
+
+    int sock_fd = 0, i = array_list_iter(nodes);
+    struct sockaddr_in server_addr;
+    struct node *current;
+    char *message = malloc(MAX_FILE_SIZE);
+
+    if (check_local_file(filename) == 1) {
+        printf("[ERR] You already have that file\n");
+        return NULL;
+    }
+
+    sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    
+    int found = 0;
+    for (; i != -1; i = array_list_next(nodes, i)) {
+        current = array_list_get(nodes, i);
+
+        int j = 0;
+        while (current->files[j] != NULL) {
+            if (strncmp(filename, current->files[j], strlen(filename)) == 0) {
+                found = 1;
+                break;
+            }  
+            j++;
+        }
+
+        if (found) {
+            break;
+        }
+    }
+
+    if (!found) {
+        printf("[ERR] No such file exist across known nodes libraries\n");
+        return NULL;
+    } 
+
+    int port = atoi(current->port);
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    inet_pton(AF_INET, current->ip, &server_addr.sin_addr);
+
+    connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+
+	write(sock_fd, REQUEST_MSG, strlen(REQUEST_MSG));
+    write(sock_fd, filename, strlen(filename));
+
+    read(sock_fd, message, MAX_BUFFER_SIZE);
+    int size = atoi(message);
+    
+    char *path = malloc(MAX_PATH_SIZE);
+    path[0] = '\0';
+    strcat(path, FILES_LIBRARY_PATH);
+    strcat(path, "/");
+    strcat(path, filename);
+
+    FILE *fp = fopen(path, "ab+");
+    for (int i = 0; i < size; i++) {
+        read(sock_fd, message, MAX_BUFFER_SIZE);
+        fprintf(fp, "%s ", message);
+    }
+    fclose(fp);
+
+    free(filename);
+    free(path);
+    free(message);
 }
 
 // Reply to request of file (it exists for sure)
 void upload_file(int sock_fd, char *file_name) {
-    char *answer = malloc(MAX_FILE_SIZE);
-    answer[0] = '\0';
-    strcat(answer, OK_MSG);
-
     char *temp_name = malloc(MAX_PATH_SIZE);
     temp_name[0] = '\0';
-    strcat(temp_name, SHARED_FOLDER_PATH);
+    strcat(temp_name, FILES_LIBRARY_PATH);
     strcat(temp_name, "/");        
     strcat(temp_name, file_name);
     int size = count_words(temp_name);
 
     char size_str[4];
     sprintf(size_str, "%d", size);
-    strcat(answer, size_str);
-    strcat(answer, "\n");
+    write(sock_fd, size_str, 4);
 
     FILE *f;
     f = fopen(temp_name, "r");
@@ -232,30 +397,55 @@ void upload_file(int sock_fd, char *file_name) {
     for (int i = 0; i < size; i++) {
         memset(temp_buffer, 0, MAX_BUFFER_SIZE);
         fscanf(f, "%s", temp_buffer);
-        strcat(answer, temp_buffer);
-        strcat(answer, "\n");
+        write(sock_fd, temp_buffer, MAX_BUFFER_SIZE);
     }
-
-    strcat(answer, END_OF_MSG);
-    write(sock_fd, answer, MAX_FILE_SIZE);
     
     fclose(f);
     free(temp_name);
     free(temp_buffer);
-    free(answer);
+}
+
+// Reply to incoming connection
+void * reply(void *arg) {
+    char *message = malloc(MAX_BUFFER_SIZE);
+    int comm_fd = *(int*)(arg);
+
+    read(comm_fd, message, MAX_BUFFER_SIZE);
+
+    if (strncmp(message, REQUEST_MSG, strlen(REQUEST_MSG)) == 0) {
+        char *filename = malloc(MAX_PATH_SIZE);
+
+        read(comm_fd, message, MAX_BUFFER_SIZE);
+        int filename_size = 0;
+        while (message[filename_size] != '\0') {
+            filename[filename_size] = message[filename_size];
+            filename_size++;
+        }
+        filename[filename_size] = '\0';
+
+        upload_file(comm_fd, filename);
+    } else if (strncmp(message, SYNC_MSG, strlen(SYNC_MSG)) == 0) {
+        receive_sync(comm_fd);
+    } else {
+        printf("[ERROR] Could not recognize received message: %s\n", message);
+    }
+
+    free(message);
 }
 
 // Wait for incoming TCP connection and reply, depending on command received
-void wait_connections() {
-    char *message = malloc(MAX_BUFFER_SIZE);
-    int master_sock_fd = 0, comm_sock_fd = 0, addr_len = 0;
+void wait_requests() {
+    int master_sock_fd = 0, comm_sock_fd = 0, addr_len = 0, p = 0, port;
     struct sockaddr_in server_addr, client_addr;
+    pthread_t threads[20];
 
+    port = atoi(MY_PORT);
+    addr_len = sizeof(client_addr);
     master_sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(MY_PORT);
+    server_addr.sin_port = htons(port);
     server_addr.sin_addr.s_addr = INADDR_ANY;
 
     bind(master_sock_fd, (struct sockaddr *) &server_addr, sizeof(server_addr));
@@ -263,107 +453,76 @@ void wait_connections() {
     listen(master_sock_fd, 20);
 
     while (1) {
-        printf("[TCP Port = %d | UDP Port = %d]\n", NETWORK_PORT, PING_PORT);
-        message[0] = '\0';
-
-        addr_len = sizeof(client_addr);
+        memset(&client_addr, 0, sizeof(client_addr));
         comm_sock_fd = accept(master_sock_fd, (struct sockaddr *) &client_addr, &addr_len);
-
-        read(comm_sock_fd, message, MAX_BUFFER_SIZE);
-
-        if (strncmp(message, HELLO_MSG, strlen(HELLO_MSG)) == 0) {
-            // Send list of nodes
-
-            struct node *new_node = (struct node *)malloc(sizeof(struct node));
-            int start = strlen(HELLO_MSG), end = start;
-
-            while (message[end] != '\n') { end++; }
-            strncpy(new_node->name, message + start, end - start);
-
-            printf("[NEW NODE] %s:%s:%u requests list of nodes\n", 
-                new_node->name, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
-
-            send_list_of_nodes(comm_sock_fd);
-            sync_list_of_files(comm_sock_fd);
-            
-            new_node_info(new_node);
-
-	        sprintf(new_node->ip, "%s", inet_ntoa(client_addr.sin_addr));
-	        unsigned int port = ntohs(client_addr.sin_port);
-	        sprintf(new_node->port, "%u", port);
-            new_node->ping = PING_LIMIT;
-
-            array_list_add(nodes, new_node);
-
-            printf("[OK] Successfully sent list of nodes to %s and added him to list of nodes\n", new_node->name);
-        } else if (strncmp(message, NEW_NODE_MSG, strlen(NEW_NODE_MSG)) == 0) {
-            // Add new node to list
-            
-            struct node *new_node = (struct node *)malloc(sizeof(struct node));
-            int start = strlen(NEW_NODE_MSG), end = start;
-            
-            while (message[end] != ':') { end++; }
-            strncpy(new_node->name, message + start, end - start);
-            end++; start = end;
-
-            while (message[end] != ':') { end++; }
-            strncpy(new_node->ip, message + start, end - start);
-            end++; start = end;
-
-            while (message[end] != '\n') { end++; }
-            strncpy(new_node->name, message + start, end - start);
-            end++; start = end;
-
-            new_node->ping = PING_LIMIT;
-
-            array_list_add(nodes, new_node);
-
-            message[0] = '\0';
-            strcat(message, OK_MSG);
-            strcat(message, END_OF_MSG);
-            write(comm_sock_fd, message, MAX_BUFFER_SIZE);
-
-            printf("[NEW NODE] %s:%u informs about new node - %s:%s:%s\n", 
-                inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port),
-                    new_node->name, new_node->ip, new_node->port);
-        } else if (strncmp(message, FILE_RETRIEVE_REQUEST, strlen(FILE_RETRIEVE_REQUEST)) == 0) {
-            int start = strlen(FILE_RETRIEVE_REQUEST), end = start;
-            char *file_name = malloc(MAX_PATH_SIZE);
-            
-            while (message[end] != '\n') { end++; }
-            strncpy(file_name, message + start, end - start);
-
-            if (check_local_file(file_name) == 1) {
-                printf("[FILE REQUEST] %s:%u asks for file %s -> Sending it\n",
-                    inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port), file_name);
-                upload_file(comm_sock_fd, file_name);
-                printf("[OK] Successfully uploaded file\n");
-            } else {
-                message[0] = '\0';
-                strcat(message, ERR_MSG);
-                strcat(message, END_OF_MSG);
-                write(comm_sock_fd, message, MAX_BUFFER_SIZE);
-            }
-
-            free (file_name);
-        } else if (strncmp(message, FILE_ADD_MSG, strlen(FILE_ADD_MSG)) == 0) {
-            // TODO - ADD FILE TO LIST
-        } else if (strncmp(message, FILE_REMOVE_MSG, strlen(FILE_REMOVE_MSG)) == 0) {
-            // TODO - REMOVE FILE FROM LIST (if in 'shared' folder - move to 'removed')
-        } else {
-            // Report error in received command
-
-            strcat(message, ERR_MSG);
-            strcat(message, END_OF_MSG);
-
-            write(comm_sock_fd, message, MAX_BUFFER_SIZE);
-        }
+        pthread_create(&threads[p % 20], NULL, reply, &comm_sock_fd);
     }
 }
+
+void first_sync(char *ip_port) {
+    char *message = malloc(MAX_BUFFER_SIZE);
+    int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in server_addr;
+    char *ip = malloc(IP_PORT_SIZE);
+    char *port = malloc(IP_PORT_SIZE);
+
+    int i = 0, j = 0;
+    while(ip_port[i] != ':') {
+        ip[j] = ip_port[i];
+        i++; j++;
+    }
+    i++; j = 0;
+    while(ip_port[i] != '\0') {
+        port[j] = ip_port[i];
+        i++; j++;
+    } 
+
+    int port_i = atoi(port);
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port_i);
+    inet_pton(AF_INET, ip, &server_addr.sin_addr);
+
+    connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+
+    write(sock_fd, SYNC_MSG, strlen(SYNC_MSG));
+
+    char *my_ip = get_my_ip();
+    char **files_lib = get_local_files();
+
+    message[0] = '\0';
+    strcat(message, network_name);
+    strcat(message, ":");
+    strcat(message, my_ip);
+    strcat(message, ":");
+    strcat(message, MY_PORT);
+
+    if (files_lib[0] == NULL) {
+        strcat(message, ":");
+    }
+
+    int k = 0;
+    while (files_lib[k] != NULL) {
+        strcat(message, ":");
+        strcat(message, files_lib[k]);
+        k++;
+    }
+
+    write(sock_fd, message, MAX_BUFFER_SIZE);
+    write(sock_fd, "0", 4);
+
+    free(ip);
+    free(port);
+    free(my_ip);
+    free(files_lib);
+}
+
 
 ////// MAIN //////
 
 int main() {
+    printf("|------| Faraday P2P Node v3.0 |------|\n\n");
+
     printf("Your Network name: ");
     scanf("%s", network_name);
 
@@ -376,8 +535,7 @@ int main() {
 
     nodes = create_array_list(STARTING_ARRAY_LIST_SIZE);
 
-    pthread_t send_sync_thread;
-    pthread_t receive_sync_thread;
+    pthread_t send_sync_thread, file_download_thread;
 
     // Ask specidied ip for list of connected nodes
     if (answer == 'n') {
@@ -389,23 +547,10 @@ int main() {
 
     // Create PING/PONG loops
     pthread_create(&send_sync_thread, NULL, send_sync, NULL);
-    pthread_create(&receive_sync_thread, NULL, receive_sync, NULL);
+    pthread_create(&file_download_thread, NULL, send_request, NULL);
 
-    answer = '0';
-    while (answer != 'y' && answer != 'n') {
-        printf("Do you want to download any files? [y/n] ");
-        scanf(" %c", &answer);
-        getchar();
-    }
-
-    char *filename = malloc(MAX_PATH_SIZE);
-    if (answer == 'y') {
-        printf("Specify filename: ");
-        scanf("%s", filename);
-        send_request(filename);
-    }
-
-    // Listen for new nodes info
-    wait_connections();
+    // Listen for new connections
+    printf("Listening for new connections on %s...\n", MY_PORT);
+    wait_requests();
     return 0;
 }
