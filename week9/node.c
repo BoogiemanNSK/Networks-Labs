@@ -12,6 +12,8 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <dirent.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include "alist.h"
 
@@ -27,7 +29,6 @@
 #define IP_PORT_SIZE 16
 #define MAX_BUFFER_SIZE 1024
 #define MAX_FILE_SIZE 4096
-#define MAX_PATH_SIZE 64
 #define STARTING_ARRAY_LIST_SIZE 16
 #define PING_LIMIT 10
 
@@ -73,13 +74,16 @@ int check_local_file(char *path) {
 // Counts number of spaces or '\n' + 1 in a given file
 int count_words(char *path) {
     FILE * f;
+
     f = fopen(path, "r");
     int count = 1;
     char c = fgetc(f);
+
     while(c != EOF) {
         if (c == ' ' || c == '\n') { count++; }
         c = fgetc(f);
     }
+
     fclose(f);    
     return count;
 }
@@ -104,7 +108,7 @@ char *get_my_ip() {
 char **get_local_files() {
     DIR *d;
     struct dirent *dir;
-    char **files = malloc(MAX_BUFFER_SIZE / MAX_PATH_SIZE);
+    char **files = malloc(MAX_BUFFER_SIZE);
     int i = 0;
 
     d = opendir(FILES_LIBRARY_PATH);
@@ -113,7 +117,7 @@ char **get_local_files() {
         while ((dir = readdir(d)) != NULL)
         {
             if (dir->d_name[0] == '.') { continue; }
-            files[i] = malloc(MAX_PATH_SIZE);
+            files[i] = malloc(MAX_BUFFER_SIZE);
             files[i][0] = '\0';
             strcat(files[i], dir->d_name);
             i++;
@@ -128,7 +132,7 @@ char **get_local_files() {
 // Returns pointer to node from its string, creates new node if not exist
 struct node *get_node_by_string(char *str) {
     char *temp = malloc(NAME_SIZE);
-    struct node *current;
+    struct node *current = NULL;
     
     int t = 0;
     while (str[t] != ':') {
@@ -151,6 +155,8 @@ struct node *get_node_by_string(char *str) {
     }
 
     if (exist == 0) {
+        printf("Added new node - %s\n", temp);
+
         struct node *new_node = malloc(sizeof(struct node));
         strncpy(new_node->name, temp, strlen(temp));
         
@@ -172,7 +178,7 @@ struct node *get_node_by_string(char *str) {
         temp[i] = '\0';
         strncpy(new_node->port, temp, strlen(temp));
 
-        new_node->files = malloc(MAX_BUFFER_SIZE / MAX_PATH_SIZE);
+        new_node->files = malloc(MAX_BUFFER_SIZE);
         new_node->files[0] = NULL;
 
         array_list_add(nodes, new_node);
@@ -190,14 +196,12 @@ void rewrite_files(struct node *p, char *msg) {
         i++;
     }
 
-    printf("%c\n", msg[i - 1]);
-
     int add = 0;
     while(msg[i] != '\0' && msg[i] != '\r') {
         t = 0;
 
         if (add || p->files[k] == NULL) {
-            p->files[k] = malloc(MAX_PATH_SIZE);
+            p->files[k] = malloc(MAX_BUFFER_SIZE);
             add = 1;
         }
         
@@ -220,8 +224,7 @@ void * send_sync(void *arg) {
     char *message = malloc(MAX_BUFFER_SIZE);
     struct node *current, *cur;
     struct sockaddr_in server_addr;
-
-    int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int sock_fd;
 
     while(1) {
         sleep(2);
@@ -229,6 +232,7 @@ void * send_sync(void *arg) {
         for (int i = array_list_iter(nodes); i != -1; i = array_list_next(nodes, i)) {
             current = array_list_get(nodes, i);
 
+            sock_fd = socket(AF_INET, SOCK_STREAM, 0);
             int port = atoi(current->port);
 
             memset(&server_addr, 0, sizeof(server_addr));
@@ -236,10 +240,13 @@ void * send_sync(void *arg) {
             server_addr.sin_port = htons(port);
             inet_pton(AF_INET, current->ip, &server_addr.sin_addr);
 
-            connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
+            if (connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) == -1) {
+                printf("[ERROR] Couldn't connect to %s\n", current->name);
+                continue;
+            }
 
-            write(sock_fd, SYNC_MSG, strlen(SYNC_MSG));
-            sleep(1);
+            write(sock_fd, SYNC_MSG, MAX_BUFFER_SIZE);
+            usleep(100000);
 
             char *my_ip = get_my_ip();
             char **files_lib = get_local_files();
@@ -263,13 +270,13 @@ void * send_sync(void *arg) {
             }
 
             write(sock_fd, message, MAX_BUFFER_SIZE);
-            sleep(1);
+            usleep(100000);
             free(my_ip);
 
             char size_str[4];
             sprintf(size_str, "%d", (int)nodes->count);
-            write(sock_fd, size_str, 4);
-            sleep(1);
+            write(sock_fd, size_str, MAX_BUFFER_SIZE);
+            usleep(100000);
 
             for (int p = array_list_iter(nodes); p != -1; p = array_list_next(nodes, p)) {
                 cur = array_list_get(nodes, p);
@@ -283,8 +290,10 @@ void * send_sync(void *arg) {
                 strcat(message, ":");
 
                 write(sock_fd, message, MAX_BUFFER_SIZE);
-                sleep(1);
+                usleep(100000);
             }
+
+            close(sock_fd);
         }
     }
 
@@ -298,8 +307,6 @@ void receive_sync(int comm_fd) {
     int n;
 
     read(comm_fd, message, MAX_BUFFER_SIZE);
-    
-    printf("Message: %s\n", message);
 
     current = get_node_by_string(message);
 
@@ -308,12 +315,9 @@ void receive_sync(int comm_fd) {
     read(comm_fd, message, MAX_BUFFER_SIZE);
     n = atoi(message);
 
-    printf("Message: %s\n", message);
-
     for (int i = 0; i < n; i++) {
         read(comm_fd, message, MAX_BUFFER_SIZE);
-        printf("Message: %s\n", message);
-        get_node_by_string(message);
+        current = get_node_by_string(message);
     }
 
     free(message);
@@ -332,7 +336,7 @@ void * send_request(void *arg) {
         return NULL;
     }
 
-    char *filename = malloc(MAX_PATH_SIZE);
+    char *filename = malloc(MAX_BUFFER_SIZE);
     printf("Specify filename: ");
     scanf("%s", filename);
 
@@ -379,15 +383,15 @@ void * send_request(void *arg) {
 
     connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
-	write(sock_fd, REQUEST_MSG, strlen(REQUEST_MSG));
-    sleep(1);
-    write(sock_fd, filename, strlen(filename));
-    sleep(1);
+	write(sock_fd, REQUEST_MSG, MAX_BUFFER_SIZE);
+    usleep(100000);
+    write(sock_fd, filename, MAX_BUFFER_SIZE);
+    usleep(100000);
 
     read(sock_fd, message, MAX_BUFFER_SIZE);
     int size = atoi(message);
     
-    char *path = malloc(MAX_PATH_SIZE);
+    char *path = malloc(MAX_BUFFER_SIZE);
     path[0] = '\0';
     strcat(path, FILES_LIBRARY_PATH);
     strcat(path, "/");
@@ -402,6 +406,8 @@ void * send_request(void *arg) {
 
     printf("Successfully downloaded %s\n", filename);
 
+    close(sock_fd);
+
     free(filename);
     free(path);
     free(message);
@@ -409,7 +415,9 @@ void * send_request(void *arg) {
 
 // Reply to request of file (it exists for sure)
 void upload_file(int sock_fd, char *file_name) {
-    char *temp_name = malloc(MAX_PATH_SIZE);
+    char *temp_name = malloc(MAX_BUFFER_SIZE);
+    memset(temp_name, 0, MAX_BUFFER_SIZE);
+
     temp_name[0] = '\0';
     strcat(temp_name, FILES_LIBRARY_PATH);
     strcat(temp_name, "/");        
@@ -418,8 +426,8 @@ void upload_file(int sock_fd, char *file_name) {
 
     char size_str[4];
     sprintf(size_str, "%d", size);
-    write(sock_fd, size_str, 4);
-    sleep(1);
+    write(sock_fd, size_str, MAX_BUFFER_SIZE);
+    usleep(100000);
 
     FILE *f;
     f = fopen(temp_name, "r");
@@ -428,7 +436,7 @@ void upload_file(int sock_fd, char *file_name) {
     for (int i = 0; i < size; i++) {
         fscanf(f, "%s", temp_buffer);
         write(sock_fd, temp_buffer, MAX_BUFFER_SIZE);
-        sleep(1);
+        usleep(100000);
     }
     
     fclose(f);
@@ -441,14 +449,14 @@ void * reply(void *arg) {
     char *message = malloc(MAX_BUFFER_SIZE);
     int comm_fd = *(int*)(arg);
 
-    printf("Received connection\n");
     read(comm_fd, message, MAX_BUFFER_SIZE);
-    printf("Message: %s\n", message);
-
+    
     if (strncmp(message, REQUEST_MSG, strlen(REQUEST_MSG)) == 0) {
-        char *filename = malloc(MAX_PATH_SIZE);
+        char *filename = malloc(MAX_BUFFER_SIZE);
+        memset(filename, 0, MAX_BUFFER_SIZE);
 
         read(comm_fd, message, MAX_BUFFER_SIZE);
+        
         int filename_size = 0;
         while (message[filename_size] != '\0') {
             filename[filename_size] = message[filename_size];
@@ -463,14 +471,16 @@ void * reply(void *arg) {
         printf("[ERROR] Could not recognize received message: %s\n", message);
     }
 
+    close(comm_fd);
+
     free(message);
+    return NULL;
 }
 
 // Wait for incoming TCP connection and reply, depending on command received
 void wait_requests() {
     int master_sock_fd = 0, comm_sock_fd = 0, addr_len = 0, p = 0, port;
     struct sockaddr_in server_addr, client_addr;
-    pthread_t threads[20];
 
     port = atoi(MY_PORT);
     addr_len = sizeof(client_addr);
@@ -488,7 +498,9 @@ void wait_requests() {
     while (1) {
         memset(&client_addr, 0, sizeof(client_addr));
         comm_sock_fd = accept(master_sock_fd, (struct sockaddr *) &client_addr, &addr_len);
-        pthread_create(&threads[p % 20], NULL, reply, &comm_sock_fd);
+
+        pthread_t new_thread;
+        pthread_create(&new_thread, NULL, reply, &comm_sock_fd);
     }
 }
 
@@ -519,8 +531,8 @@ void first_sync(char *ip_port) {
 
     connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
-    write(sock_fd, SYNC_MSG, strlen(SYNC_MSG));
-    sleep(1);
+    write(sock_fd, SYNC_MSG, MAX_BUFFER_SIZE);
+    usleep(100000);
 
     char *my_ip = get_my_ip();
     char **files_lib = get_local_files();
@@ -544,9 +556,9 @@ void first_sync(char *ip_port) {
     }
 
     write(sock_fd, message, MAX_BUFFER_SIZE);
-    sleep(1);
-    write(sock_fd, "0", 4);
-    sleep(1);
+    usleep(100000);
+    write(sock_fd, "0", MAX_BUFFER_SIZE);
+    usleep(100000);
 
     free(ip);
     free(port);
