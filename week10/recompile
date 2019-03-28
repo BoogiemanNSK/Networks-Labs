@@ -1,0 +1,1 @@
+gcc -pthread node.c alist.c helpers.c -o node
