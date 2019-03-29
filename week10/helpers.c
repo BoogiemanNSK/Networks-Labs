@@ -88,7 +88,6 @@ char **get_local_files() {
 // Returns pointer to node from its string, creates new node if not exist
 struct node *get_node_by_string(char *str, char *network_name, p_array_list nodes) {
     char *temp = malloc(NAME_SIZE);
-    struct node *current = NULL;
     
     int t = 0;
     while (str[t] != ':') {
@@ -97,52 +96,54 @@ struct node *get_node_by_string(char *str, char *network_name, p_array_list node
     }
     temp[t] = '\0';
 
+    // Me
     if (strncmp(temp, network_name, strlen(temp)) == 0) {
-        return current;
+        free(temp);
+        return NULL;
     }
 
-    int exist = 0;
+    // Exists
+    struct node *current;
     for (int i = array_list_iter(nodes); i != -1; i = array_list_next(nodes, i)) {
         current = array_list_get(nodes, i);
         if (strncmp(temp, current->name, strlen(temp)) == 0) {
-            exist = 1;
-            break;
+            printf("%s is already in DB\n", temp);
+            free(temp);
+            return current;
         }
     }
 
-    if (exist == 0) {
-        printf("Added new node - %s\n", temp);
+    // New node
+    printf("Adding new node - %s\n", temp);
 
-        struct node *new_node = malloc(sizeof(struct node));
-        strncpy(new_node->name, temp, strlen(temp));
+    struct node *new_node = malloc(sizeof(struct node));
+    strncpy(new_node->name, temp, strlen(temp));
         
-        int i = 0;
-        t++;
-        while (str[t] != ':') {
-            temp[i] = str[t];
-            i++; t++;
-        }
-        temp[i] = '\0';
-        strncpy(new_node->ip, temp, strlen(temp));
-
-        i = 0;
-        t++;
-        while (str[t] != ':') {
-            temp[i] = str[t];
-            i++; t++;
-        }
-        temp[i] = '\0';
-        strncpy(new_node->port, temp, strlen(temp));
-
-        new_node->files = malloc(MAX_BUFFER_SIZE);
-        new_node->files[0] = NULL;
-
-        array_list_add(nodes, new_node);
-        current = new_node;
+    int i = 0;
+    t++;
+    while (str[t] != ':') {
+        temp[i] = str[t];
+        i++; t++;
     }
+    temp[i] = '\0';
+    strncpy(new_node->ip, temp, strlen(temp));
+
+    i = 0;
+    t++;
+    while (str[t] != ':') {
+        temp[i] = str[t];
+        i++; t++;
+    }
+    temp[i] = '\0';
+    strncpy(new_node->port, temp, strlen(temp));
+
+    new_node->files = malloc(MAX_BUFFER_SIZE);
+    new_node->files[0] = NULL;
+
+    array_list_add(nodes, new_node);
 
     free(temp);
-    return current;
+    return new_node;
 }
 
 
@@ -155,11 +156,14 @@ void rewrite_files(struct node *p, char *msg) {
     }
 
     int add = 0;
+
     while(msg[i] != '\0' && msg[i] != '\r') {
         t = 0;
 
+        // If more space should be reserved for files
         if (add || p->files[k] == NULL) {
             p->files[k] = malloc(MAX_BUFFER_SIZE);
+            p->files[k + 1] = NULL;
             add = 1;
         }
         
@@ -171,7 +175,11 @@ void rewrite_files(struct node *p, char *msg) {
         p->files[k][t] = '\0';
         k++;
     }
-    p->files[k] = NULL;
+
+    while (p->files[k] != NULL) {
+        p->files[k] = NULL;
+        k++;
+    }
 }
 
 
