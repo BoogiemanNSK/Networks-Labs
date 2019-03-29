@@ -20,7 +20,7 @@
 // GLOBALS
 p_array_list nodes;
 char network_name[NAME_SIZE];
-char network_ip[IP_PORT_SIZE];
+char* network_ip;
 
 
 // Send list of known nodes to all nodes
@@ -38,7 +38,11 @@ void * send_sync(void *arg) {
         sleep(2);
 
         for (int i = array_list_iter(nodes); i != -1; i = array_list_next(nodes, i)) {
+            printf("[SEND SYNC] BEGIN\n");
+
             current = array_list_get(nodes, i);
+
+            printf("[SEND SYNC] Sending sync to %s:%s:%s...\n", current->name, current->ip, current->port);
 
             sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -53,6 +57,9 @@ void * send_sync(void *arg) {
             }
 
             stringify_me(msg_str, network_name, network_ip);
+
+            printf("[SEND SYNC] Stringify res: %s\n", msg_str);
+
             write_sync(sock_fd, &msg_int, sizeof(int));
             write_sync(sock_fd, msg_str, MAX_BUFFER_SIZE);
             write_sync(sock_fd, (int*)&nodes->count, sizeof(int));
@@ -61,14 +68,14 @@ void * send_sync(void *arg) {
                 cur = array_list_get(nodes, p);
 
                 stringify_node(msg_str, cur);
+                printf("[SEND SYNC] Stringify res: %s\n", msg_str);
                 write_sync(sock_fd, msg_str, MAX_BUFFER_SIZE);
             }
 
             close(sock_fd);
+            printf("[SEND SYNC] END\n");
         }
     }
-
-    free(msg_str);
 }
 
 
@@ -79,17 +86,24 @@ void receive_sync(int comm_fd) {
     
     struct node *current;
 
+    printf("[RECV SYNC] BEGIN\n");
     read(comm_fd, msg_str, MAX_BUFFER_SIZE);
 
+    printf("[RECV SYNC] Received sync from %s\n", msg_str);
     current = get_node_by_string(msg_str, network_name, nodes);
     rewrite_files(current, msg_str);
 
+    printf("[RECV SYNC] Files rewritten\n");
     read(comm_fd, &msg_int, MAX_BUFFER_SIZE);
 
+    printf("[RECV SYNC] Number of nodes to receive: %d\n", msg_int);
     for (int i = 0; i < msg_int; i++) {
         read(comm_fd, msg_str, MAX_BUFFER_SIZE);
+        printf("[RECV SYNC] New node - %s\n", msg_str);
         current = get_node_by_string(msg_str, network_name, nodes);
     }
+
+    printf("[RECV SYNC] END\n");
 
     free(msg_str);
 }
@@ -199,6 +213,7 @@ void * reply(void *arg) {
     char* filename;
 
     read(comm_fd, &msg_int, MAX_BUFFER_SIZE);
+    printf("[NEW REQUEST] Received request: %d\n", msg_int);
     
     switch (msg_int)
     {
@@ -289,14 +304,17 @@ void first_sync(char *ip_port) {
 
 ////// MAIN //////
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc != 2) {
+        printf("Usage: ./node [Your IP]\n");
+        return 0;
+    }
+
     printf("|------| Faraday P2P Node v3.0 |------|\n\n");
 
     printf("Your network name: ");
     scanf("%s", network_name);
-
-    printf("Your network IP: ");
-    scanf("%s", network_ip);
+    network_ip = argv[1];
 
     char answer = '0';
     while (answer != 'y' && answer != 'n') {
@@ -309,7 +327,7 @@ int main() {
 
     pthread_t send_sync_thread, file_download_thread;
 
-    // Ask specidied ip for list of connected nodes
+    // Ask specified ip for list of connected nodes
     if (answer == 'n') {
         char input[IP_PORT_SIZE * 2];
         printf("Please, specify IP:PORT of node inside network: ");
