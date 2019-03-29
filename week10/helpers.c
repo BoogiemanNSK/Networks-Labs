@@ -179,18 +179,19 @@ void rewrite_files(struct node *p, char *msg) {
 void stringify_me(char *str, char *name, char *ip) {
     char **files_lib = get_local_files();
     
-    sprintf(str, "%s:%s:%s", name, ip, MY_PORT);
+    sprintf(str, "%s:%s:%s:", name, ip, MY_PORT);
 
     if (files_lib[0] == NULL) {
-        strcat(str, ":");
+        return;
     }
 
     int k = 0;
-    while (files_lib[k] != NULL) {
-        strcat(str, ":");
+    while (files_lib[k + 1] != NULL) {
         strcat(str, files_lib[k]);
+        strcat(str, ",");
         k++;
     }
+    strcat(str, files_lib[k]);
 }
 
 
