@@ -177,8 +177,6 @@ void * send_request() {
 
     connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
-    printf("Connected\n");
-
     msg_int = htonl(msg_int);
 	write_sync(sock_fd, &msg_int, sizeof(int));
     write_sync(sock_fd, filename, MAX_BUFFER_SIZE);
@@ -186,19 +184,12 @@ void * send_request() {
     read(sock_fd, &msg_int, sizeof(int));
     msg_int = ntohl(msg_int);
 
-    printf("Info received\n");
-
     sprintf(path, "%s/%s", FILES_LIBRARY_PATH, filename);
-
-    printf("Path = |%s|\n", path);
 
     FILE *fp = fopen(path, "ab+");
 
-    printf("File created\n");
-
     for (i = 0; i < msg_int; i++) {
         read_until(sock_fd, msg_str, MAX_BUFFER_SIZE);
-        printf("[%d/%d]%s\n", (i + 1), msg_int, msg_str);
         fprintf(fp, "%s ", msg_str);
     }
     fclose(fp);
