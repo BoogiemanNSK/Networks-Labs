@@ -14,10 +14,137 @@ char get_answer(char *question) {
 
 
 // Synchronized version of write that waits 0.1 seconds before sending
-int write_sync(int sockfd, void *data, int data_size) {
-    int n = write(sockfd, data, data_size);
+int write_sync(int sock_fd, void *data, int data_size) {
+    int n = write(sock_fd, data, data_size);
     usleep(100000);
     return n;
+}
+
+
+// Checks if given hash is in blacklist
+int blacklisted(p_array_list bdb, int hash, int *B_LOCK) {
+    wait_lock(B_LOCK);
+    lock(B_LOCK);
+    
+    int *b_hash;
+    int i = array_list_iter(bdb);
+    for (; i != -1; i = array_list_next(bdb, i)) {
+        b_hash = (int*)array_list_get(bdb, i);
+        if (*b_hash == hash) {
+            unlock(B_LOCK);
+            return 1;
+        }
+    }
+
+    unlock(B_LOCK);
+    return 0;
+}
+
+
+// Calculates hash from given ip
+int calculate_hash(struct sockaddr_in *client_addr) {
+    int hash = 0;
+    char *ip_string = malloc(IP_PORT_SIZE);
+    ip_string = inet_ntoa(client_addr->sin_addr);
+    
+    for (int i = 0; i < strlen(ip_string); i++) {
+        hash += ip_string[i];
+    }
+
+    return hash;
+}
+
+
+// Returns amount of time given node been 
+int current_list_time(p_array_list cdb, int hash, int *C_LOCK) {
+    wait_lock(C_LOCK);
+    lock(C_LOCK);
+    
+    struct cdb_entry *c_node;
+    int i = array_list_iter(cdb);
+    for (; i != -1; i = array_list_next(cdb, i)) {
+        c_node = array_list_get(cdb, i);
+        if (c_node->hash == hash) {
+            unlock(C_LOCK);
+            return c_node->time;
+        }
+    }
+
+    c_node = (struct cdb_entry *)malloc(sizeof(struct cdb_entry));
+    c_node->hash = hash;
+    c_node->time = 0;
+    array_list_add(cdb, c_node);
+
+    unlock(C_LOCK);
+    return 0;
+}
+
+
+// Increases time value of given hash
+void increment_time(p_array_list cdb, p_array_list bdb, int hash, int *C_LOCK, int *B_LOCK) {
+    wait_lock(C_LOCK);
+    lock(C_LOCK);
+    
+    struct cdb_entry *c_node;
+    int i = array_list_iter(cdb);
+    for (; i != -1; i = array_list_next(cdb, i)) {
+        c_node = array_list_get(cdb, i);
+        if (c_node->hash == hash) {
+            c_node->time++;
+
+            if (c_node->time > 5) {
+                wait_lock(B_LOCK);
+                lock(B_LOCK);
+    
+                int *b_hash = (int*)malloc(sizeof(int));
+                *b_hash = hash;
+                array_list_add(bdb, b_hash);
+                array_list_remove(cdb, c_node);
+
+                unlock(B_LOCK);
+            }
+            
+            break;
+        }
+    }
+
+    unlock(C_LOCK);
+}
+
+
+// Decreases time value of given hash
+void decrement_time(p_array_list cdb, int hash, int *C_LOCK) {
+    wait_lock(C_LOCK);
+    lock(C_LOCK);
+    
+    struct cdb_entry *c_node;
+    int i = array_list_iter(cdb);
+    for (; i != -1; i = array_list_next(cdb, i)) {
+        c_node = array_list_get(cdb, i);
+        if (c_node->hash == hash) {
+            c_node->time--;
+
+            if (c_node->time < 0) {
+                array_list_remove(cdb, c_node);
+            }
+            
+            break;
+        }
+    }
+
+    unlock(C_LOCK);
+}
+
+
+// Synchronized version of read that waits until 'bytes' amount of bytes is acquired
+void read_until(int sock, char* buf, size_t bytes) {
+    size_t count = 0;
+    ssize_t received = 0;
+    while((received = read(sock, buf, bytes-count)) > 0) {
+        count += received;
+        if (count == bytes) return;
+    }
+    printf("Error: could not receive everything\n");
 }
 
 
@@ -86,7 +213,7 @@ char **get_local_files() {
 
 
 // Returns pointer to node from its string, creates new node if not exist
-struct node *get_node_by_string(char *str, char *network_name, p_array_list nodes) {
+struct node *get_node_by_string(const char *str, char *network_name, p_array_list nodes) {
     char *temp = malloc(NAME_SIZE);
     
     int t = 0;
@@ -107,14 +234,10 @@ struct node *get_node_by_string(char *str, char *network_name, p_array_list node
     for (int i = array_list_iter(nodes); i != -1; i = array_list_next(nodes, i)) {
         current = array_list_get(nodes, i);
         if (strncmp(temp, current->name, strlen(temp)) == 0) {
-            printf("%s is already in DB\n", temp);
             free(temp);
             return current;
         }
     }
-
-    // New node
-    printf("Adding new node - %s\n", temp);
 
     struct node *new_node = malloc(sizeof(struct node));
     strncpy(new_node->name, temp, strlen(temp));
@@ -137,36 +260,55 @@ struct node *get_node_by_string(char *str, char *network_name, p_array_list node
     temp[i] = '\0';
     strncpy(new_node->port, temp, strlen(temp));
 
-    new_node->files = malloc(MAX_BUFFER_SIZE);
-    new_node->files[0] = NULL;
-
+    new_node->files = malloc(MAX_BUFFER_SIZE * sizeof(char*));
+    for (i = 0; i < MAX_BUFFER_SIZE; i++) {
+        new_node->files[i] = NULL;
+    }
     array_list_add(nodes, new_node);
+
+    // New node
+    printf("Added new node - %s:%s:%s\n", new_node->name, new_node->ip, new_node->port);
 
     free(temp);
     return new_node;
 }
 
 
+// Waits one tick if lock is 0
+void wait_lock(const int *LOCK) {
+    while (*LOCK) { usleep(0); }
+}
+
+
+// Sets lock to 1
+void lock(int *LOCK) {
+    *LOCK = 1;
+}
+
+
+// Sets lock to 0
+void unlock(int *LOCK) {
+    *LOCK = 0;
+}
+
+
 // Updates file library for given node
-void rewrite_files(struct node *p, char *msg) {
+void rewrite_files(struct node *p, const char *msg) {
     int i = 0, k = 0, t;
     for (int j = 0; j < 3; j++) {
         while (msg[i] != ':') { i++; }
         i++;
     }
 
-    int add = 0;
-
     while(msg[i] != '\0' && msg[i] != '\r') {
         t = 0;
+        i = (k == 0) ? i : (i + 1);
 
         // If more space should be reserved for files
-        if (add || p->files[k] == NULL) {
+        if (p->files[k] == NULL) {
             p->files[k] = malloc(MAX_BUFFER_SIZE);
-            p->files[k + 1] = NULL;
-            add = 1;
         }
-        
+
         while (msg[i] != ',' && msg[i] != '\0' && msg[i] != '\r') {
             p->files[k][t] = msg[i];
             t++; i++;
@@ -176,10 +318,7 @@ void rewrite_files(struct node *p, char *msg) {
         k++;
     }
 
-    while (p->files[k] != NULL) {
-        p->files[k] = NULL;
-        k++;
-    }
+    p->files[k] = NULL;
 }
 
 
