@@ -29,7 +29,7 @@ void * send_sync() {
     int sock_fd;
     char *temp;
 
-    int msg_int = SYNC_MSG_INT;
+    int msg_int;
     char *msg_str = malloc(MAX_BUFFER_SIZE);
 
     struct node *current, *cur;
@@ -56,7 +56,7 @@ void * send_sync() {
 
             stringify_me(msg_str, network_name, network_ip);
 
-            msg_int = htonl(msg_int);
+            msg_int = htonl(SYNC_MSG_INT);
             write_sync(sock_fd, &msg_int, sizeof(int));
             write_sync(sock_fd, msg_str, MAX_BUFFER_SIZE);
 
@@ -78,12 +78,16 @@ void * send_sync() {
 
 // On receiving sync, compare your list and received
 void receive_sync(int comm_fd) {
-    int msg_int;
+    int msg_int, msg_len;
     char *msg_str = (char*)malloc(MAX_BUFFER_SIZE);
     
     struct node *current;
     memset(msg_str, 0, MAX_BUFFER_SIZE);
-    read_until(comm_fd, msg_str, MAX_BUFFER_SIZE);
+    msg_len = read_until(comm_fd, msg_str, MAX_BUFFER_SIZE);
+    if (msg_len == -1) {
+        free(msg_str);
+        return;
+    }
 
     wait_lock(&KDB_LOCK);
     lock(&KDB_LOCK);
@@ -92,6 +96,7 @@ void receive_sync(int comm_fd) {
     rewrite_files(current, msg_str);
 
     read(comm_fd, &msg_int, sizeof(int));
+    msg_int = ntohl(msg_int);
     for (int i = 0; i < msg_int; i++) {
         memset(msg_str, 0, MAX_BUFFER_SIZE);
         read_until(comm_fd, msg_str, MAX_BUFFER_SIZE);
@@ -106,19 +111,32 @@ void receive_sync(int comm_fd) {
 
 // Ask all known kdb for file and download it
 void * send_request() {
-    int sock_fd = 0, i = array_list_iter(kdb), msg_int = REQUEST_MSG_INT;
+    int sock_fd = 0, i, msg_int = REQUEST_MSG_INT;
     struct sockaddr_in server_addr;
     struct node *current = NULL;
     char *temp;
 
-    if (get_answer("Do you want to download any files? [y/n]") == 'n') {
+    if (get_answer("Do you want to download any files? [y/n]\n") == 'n') {
         return NULL;
     }
 
     char *path = malloc(MAX_BUFFER_SIZE);
     char *msg_str = malloc(MAX_BUFFER_SIZE);
     char *filename = malloc(MAX_BUFFER_SIZE);
-    printf("Specify filename: ");
+
+    printf("[KNOWN FILES]\n");
+    i = array_list_iter(kdb);
+    for (; i != -1; i = array_list_next(kdb, i)) {
+        current = array_list_get(kdb, i);
+
+        int j = 0;
+        while (current->files[j] != NULL) {
+            printf("%s\n", current->files[j]);
+            j++;
+        }
+    }
+
+    printf("Specify filename:\n");
     scanf("%s", filename);
     
     if (check_local_file(filename) == 1) {
@@ -126,18 +144,17 @@ void * send_request() {
         return NULL;
     }
 
-    sock_fd = socket(AF_INET, SOCK_STREAM, 0);
-    
+    i = array_list_iter(kdb);
     int found = 0;
     for (; i != -1; i = array_list_next(kdb, i)) {
         current = array_list_get(kdb, i);
 
         int j = 0;
         while (current->files[j] != NULL) {
-            if (strncmp(filename, current->files[j], strlen(filename)) == 0) {
+            if (strcmp(filename, current->files[j]) == 0) {
                 found = 1;
                 break;
-            }  
+            }
             j++;
         }
 
@@ -149,7 +166,9 @@ void * send_request() {
     if (!found) {
         printf("[ERR] No such file exist across known kdb libraries\n");
         return NULL;
-    } 
+    }
+
+    sock_fd = socket(AF_INET, SOCK_STREAM, 0);
 
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
@@ -158,17 +177,28 @@ void * send_request() {
 
     connect(sock_fd, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
+    printf("Connected\n");
+
+    msg_int = htonl(msg_int);
 	write_sync(sock_fd, &msg_int, sizeof(int));
     write_sync(sock_fd, filename, MAX_BUFFER_SIZE);
     
     read(sock_fd, &msg_int, sizeof(int));
     msg_int = ntohl(msg_int);
 
+    printf("Info received\n");
+
     sprintf(path, "%s/%s", FILES_LIBRARY_PATH, filename);
-    
+
+    printf("Path = |%s|\n", path);
+
     FILE *fp = fopen(path, "ab+");
+
+    printf("File created\n");
+
     for (i = 0; i < msg_int; i++) {
         read_until(sock_fd, msg_str, MAX_BUFFER_SIZE);
+        printf("[%d/%d]%s\n", (i + 1), msg_int, msg_str);
         fprintf(fp, "%s ", msg_str);
     }
     fclose(fp);
@@ -211,7 +241,7 @@ void upload_file(int sock_fd, char *filename) {
 void * reply(void *args) {
     int comm_fd = ((int*)args)[0];
     int hash = ((int*)args)[1];
-    int msg_int;
+    int msg_int = 0;
     char* filename;
 
     read(comm_fd, &msg_int, sizeof(int));
@@ -266,7 +296,7 @@ void wait_requests() {
         comm_sock_fd = accept(master_sock_fd, (struct sockaddr *) &client_addr, &addr_len);
 
         int hash = calculate_hash(&client_addr);
-        if (blacklisted(bdb, hash, &BDB_LOCK) || current_list_time(cdb, hash, &CDB_LOCK) > 5) {
+        if (blacklisted(bdb, hash, &BDB_LOCK)) {
             continue;
         }
 
@@ -277,7 +307,7 @@ void wait_requests() {
         args[1] = hash;
 
         pthread_t new_thread;
-        pthread_create(&new_thread, NULL, reply, &comm_sock_fd);
+        pthread_create(&new_thread, NULL, reply, args);
     }
 }
 
@@ -315,7 +345,7 @@ int first_sync(const char *ip_port) {
     write_sync(sock_fd, &msg_int, sizeof(int));
     write_sync(sock_fd, msg_str, MAX_BUFFER_SIZE);
     
-    msg_int = htonl(msg_int);
+    msg_int = htonl(0);
     write_sync(sock_fd, &msg_int, sizeof(int));
 
     free(ip);
@@ -331,15 +361,15 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    printf("|------| Faraday P2P Node v3.0 |------|\n\n");
+    printf("|------| Faraday P2P Node v4.0 |------|\n\n");
 
-    printf("Your network name: ");
+    printf("Your network name:\n");
     scanf("%s", network_name);
     network_ip = argv[1];
 
     char answer = '0';
     while (answer != 'y' && answer != 'n') {
-        printf("Are you first node in network? [y/n] ");
+        printf("Are you first node in network? [y/n]\n");
         scanf(" %c", &answer);
         getchar();
     }

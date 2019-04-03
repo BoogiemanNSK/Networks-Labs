@@ -5,7 +5,7 @@
 char get_answer(char *question) {
     char answer = '0';
     while (answer != 'y' && answer != 'n') {
-        printf("%s ", question);
+        printf("%s", question);
         scanf(" %c", &answer);
         getchar();
     }
@@ -44,39 +44,13 @@ int blacklisted(p_array_list bdb, int hash, int *B_LOCK) {
 // Calculates hash from given ip
 int calculate_hash(struct sockaddr_in *client_addr) {
     int hash = 0;
-    char *ip_string = malloc(IP_PORT_SIZE);
-    ip_string = inet_ntoa(client_addr->sin_addr);
+    char *ip_string = inet_ntoa(client_addr->sin_addr);
     
     for (int i = 0; i < strlen(ip_string); i++) {
         hash += ip_string[i];
     }
 
     return hash;
-}
-
-
-// Returns amount of time given node been 
-int current_list_time(p_array_list cdb, int hash, int *C_LOCK) {
-    wait_lock(C_LOCK);
-    lock(C_LOCK);
-    
-    struct cdb_entry *c_node;
-    int i = array_list_iter(cdb);
-    for (; i != -1; i = array_list_next(cdb, i)) {
-        c_node = array_list_get(cdb, i);
-        if (c_node->hash == hash) {
-            unlock(C_LOCK);
-            return c_node->time;
-        }
-    }
-
-    c_node = (struct cdb_entry *)malloc(sizeof(struct cdb_entry));
-    c_node->hash = hash;
-    c_node->time = 0;
-    array_list_add(cdb, c_node);
-
-    unlock(C_LOCK);
-    return 0;
 }
 
 
@@ -100,13 +74,20 @@ void increment_time(p_array_list cdb, p_array_list bdb, int hash, int *C_LOCK, i
                 *b_hash = hash;
                 array_list_add(bdb, b_hash);
                 array_list_remove(cdb, c_node);
+                printf("Blacklisted hash %d\n", hash);
 
                 unlock(B_LOCK);
             }
-            
-            break;
+
+            unlock(C_LOCK);
+            return;
         }
     }
+
+    c_node = (struct cdb_entry *)malloc(sizeof(struct cdb_entry));
+    c_node->hash = hash;
+    c_node->time = 0;
+    array_list_add(cdb, c_node);
 
     unlock(C_LOCK);
 }
@@ -137,14 +118,16 @@ void decrement_time(p_array_list cdb, int hash, int *C_LOCK) {
 
 
 // Synchronized version of read that waits until 'bytes' amount of bytes is acquired
-void read_until(int sock, char* buf, size_t bytes) {
+int read_until(int sock, char* buf, size_t bytes) {
     size_t count = 0;
     ssize_t received = 0;
     while((received = read(sock, buf, bytes-count)) > 0) {
         count += received;
-        if (count == bytes) return;
+        if (count == bytes) return count;
     }
-    printf("Error: could not receive everything\n");
+
+    printf("[ERROR] SYNC: Could not receive everything\n");
+    return -1;
 }
 
 
@@ -267,7 +250,7 @@ struct node *get_node_by_string(const char *str, char *network_name, p_array_lis
     array_list_add(nodes, new_node);
 
     // New node
-    printf("Added new node - %s:%s:%s\n", new_node->name, new_node->ip, new_node->port);
+    printf("Added new node - %s\n", str);
 
     free(temp);
     return new_node;

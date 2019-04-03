@@ -40,15 +40,14 @@ char **get_local_files();
 char get_answer(char *question);
 
 int write_sync(int sock_fd, void *data, int data_size);
+int read_until(int sock, char* buf, size_t bytes);
 int check_local_file(char *path);
 int count_words(char *path);
 int blacklisted(p_array_list bdb, int hash, int *B_LOCK);
 int calculate_hash(struct sockaddr_in *client_addr);
-int current_list_time(p_array_list cdb, int hash, int *C_LOCK);
 
 void increment_time(p_array_list cdb, p_array_list bdb, int hash, int *C_LOCK, int *B_LOCK);
 void decrement_time(p_array_list cdb, int hash, int *C_LOCK);
-void read_until(int sock, char* buf, size_t bytes);
 void lock(int *LOCK);
 void unlock(int *LOCK);
 void wait_lock(const int *LOCK);
