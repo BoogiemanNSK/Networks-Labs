@@ -160,7 +160,7 @@ int count_words(char *path) {
     char c = fgetc(f);
 
     while(c != EOF) {
-        if (c == ' ' || c == '\n') { count++; }
+        if (c == ' ') { count++; }
         c = fgetc(f);
     }
 

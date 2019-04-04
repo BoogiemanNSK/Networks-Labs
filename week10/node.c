@@ -56,6 +56,8 @@ void * send_sync() {
 
             stringify_me(msg_str, network_name, network_ip);
 
+            printf("[SYNC SENT] %s\n\n", msg_str);
+
             msg_int = htonl(SYNC_MSG_INT);
             write_sync(sock_fd, &msg_int, sizeof(int));
             write_sync(sock_fd, msg_str, MAX_BUFFER_SIZE);
@@ -89,6 +91,8 @@ void receive_sync(int comm_fd) {
         return;
     }
 
+    printf("[SYNC RCV] %s\n", msg_str);
+
     wait_lock(&KDB_LOCK);
     lock(&KDB_LOCK);
 
@@ -97,11 +101,17 @@ void receive_sync(int comm_fd) {
 
     read(comm_fd, &msg_int, sizeof(int));
     msg_int = ntohl(msg_int);
+
+    printf("%d Nodes To Read\n", msg_int);
+
     for (int i = 0; i < msg_int; i++) {
         memset(msg_str, 0, MAX_BUFFER_SIZE);
         read_until(comm_fd, msg_str, MAX_BUFFER_SIZE);
+        printf("[%d]%s\n", i, msg_str);
         get_node_by_string(msg_str, network_name, kdb);
     }
+
+    printf("\n");
 
     unlock(&KDB_LOCK);
 
@@ -214,6 +224,7 @@ void upload_file(int sock_fd, char *filename) {
 
     size = htonl(size);
     write_sync(sock_fd, &size, sizeof(int));
+    size = ntohl(size);
 
     FILE *f;
     f = fopen(path, "r");
