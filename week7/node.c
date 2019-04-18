@@ -186,7 +186,7 @@ void * udp_receive_ping(void *arg) {
                 current = array_list_get(nodes, i);
 
                 if (strncmp(current->ip, client_ip, strlen(client_ip)) == 0) {
-                    current->ping = 5;
+                    current->ping = 20;
                     break;
                 }
             }
@@ -487,8 +487,6 @@ void sync_list_of_files(int sock_fd) {
 
     // Send previously built local list to host, so he could sync
     write(sock_fd, local_list, MAX_BUFFER_SIZE);
-
-    printf("[OK] Successfully synced file libraries\n");
 
     free(message);
     free(local_list);
